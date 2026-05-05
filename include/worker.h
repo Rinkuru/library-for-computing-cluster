@@ -1,9 +1,9 @@
 #ifndef WORKER_H
 #define WORKER_H
 
-void hello_worker(void);
+#include "common.h"
 
-typedef double (*Func)(double x);
+void hello_worker(void);
 
 typedef struct {
     const char *host;

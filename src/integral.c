@@ -1,18 +1,6 @@
 #include "integral.h"
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <math.h>
-#include <time.h>
-
-
-double SimpleFunc(double x) {
-    return (double)4.0 / (1.0 + x*x); 
-}
-
-double HardFunc(double x) {
-    return 2.0 + sin(2000000.0 * x);
-}
 
 double SimpsonMethod(Func f, double a, double b, int n) {
     double h = (b - a) / n;
@@ -32,7 +20,7 @@ double SlowSimpson(Func f, double a, double b, double eps) {
     int n = 4;
     double ans2 = SimpsonMethod(f, a, b, n);
     double ans1;
-    for (;;) {
+    for (;;) { //можно было бы установаить количество итераций, для расходящихся интегралов
         n *= 2;
         ans1 = SimpsonMethod(f, a, b, n);
         if (fabs(ans1 - ans2) <= eps) {
@@ -70,7 +58,10 @@ double FastSimpson(Func f, double a, double b, double eps) {
     };
     return (h * sum1) / 3.0;
 }
+
 /*
+#include <stdio.h>
+#include <stdlib.h>
 int main(int argc, char **argv) {
     double eps = 0.000000000001;
     printf("slow = %.16f\n", SlowSimpson(SimpleFunc, 0, 1, eps));
@@ -87,6 +78,7 @@ int main(int argc, char **argv) {
 }
 */
 /*
+#include <time.h>
 int main(int argc, char **argv) {
     double eps = 0.000000000001;
     double exact = 2.0 + (1.0 - cos(2000000.0)) / 2000000.0; 

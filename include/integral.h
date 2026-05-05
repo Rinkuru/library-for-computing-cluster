@@ -1,7 +1,7 @@
 #ifndef INTEGRAL_H
 #define INTEGRAL_H
 
-typedef double (*Func)(double x);
+#include "common.h"
 
 double SlowSimpson(Func f, double a, double b, double eps);
 

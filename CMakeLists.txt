@@ -4,10 +4,13 @@ project(computing_cluster C)
 
 add_library(cluster STATIC
     src/master.c
-    src/worker.c)
+    src/worker.c
+    src/integral.c)
 
 target_include_directories(cluster PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+target_link_libraries(cluster PUBLIC m)
 
 add_subdirectory(tests)
