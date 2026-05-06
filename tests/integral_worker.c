@@ -1,4 +1,5 @@
 #include "worker.h"
+#include "integral.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,10 @@ int main(void)
         fprintf(stderr, "worker failed\n");
         return 1;
     }
+
+    double eps = 0.000000000001;
+    printf("slow = %.16f\n", SlowSimpson(SimpleFunc, 0, 1, eps));
+
 
     return 0;
 }
