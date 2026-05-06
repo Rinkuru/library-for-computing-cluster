@@ -3,4 +3,6 @@
 
 typedef double (*Func)(double x);
 
+typedef double (*Method)(Func f, double a, double b, double eps);
+
 #endif

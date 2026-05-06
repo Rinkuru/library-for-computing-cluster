@@ -13,4 +13,4 @@ target_include_directories(cluster PUBLIC
 
 target_link_libraries(cluster PUBLIC m)
 
-add_subdirectory(tests)
+add_subdirectory(examples)
