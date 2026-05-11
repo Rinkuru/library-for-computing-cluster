@@ -20,19 +20,43 @@ int main(void)
     WorkerConfig config = {
         .host = "127.0.0.1",
         .port = 1337,
-        .cores = 2,
         .maxTime= 10000,
     };
+    Worker worker;
+    int status = 0;
 
-    int status = WorkerRun(&config, SimpleFunc);
+    //TODO Выделить ядра и потоки, которые будут доступны этому процессу "рабочего узла"
+    WorkerResources resources = {
+        .threads = 2,
+        .cores = 2,
+    };
+
+    //TODO подключение к серверу, и сохранение у себя параметров сколько потоков надо будет создать
+    //а так же обработка ошибки если не получилось подключиться
+    status = WorkerInit(&worker, &config, &resources);
     if (status != 0) {
-        fprintf(stderr, "worker failed\n");
+        fprintf(stderr, "worker init failed\n");
         return 1;
     }
 
-    double eps = 0.000000000001;
-    printf("slow = %.16f\n", SlowSimpson(SimpleFunc, 0, 1, eps));
 
+    //TODO передача задания на исполнение тут мы должны передать функции для исполнения. И как-то взять от мастера eps и границы подсчётов и посчтиать на своей вычислительной мощности (сколько там выделили поток и ядер), а потом вернуть то что посчитали
+    status = WorkerRun(&worker, SlowSimpson, SimpleFunc);
+    if (status != 0) {
+        fprintf(stderr, "worker run failed\n");
+        WorkerDestroy(&worker);
+        return 1;
+    }
+
+    //TODO сделать ещё функцию для worker.c такую что вернёт результат мастеру. Это должна быть именно отдельная функция
+    status = WorkerSendResult(&worker);
+    if (status != 0) {
+        fprintf(stderr, "worker send result failed\n");
+        WorkerDestroy(&worker);
+        return 1;
+    }
+
+    WorkerDestroy(&worker);
 
     return 0;
 }
