@@ -20,6 +20,27 @@ typedef struct {
     double value;
 } IntegralResult;
 
+typedef struct {
+    int socketFd;
+} MasterWorker;
+
+typedef struct {
+    int listenSocketFd;
+    MasterWorker *workers;
+    int workersCount;
+    int workersCapacity;
+} Master;
+
+int MasterInit(Master *master, const MasterConfig *config);
+
+int MasterRun(
+    const Master *master,
+    const IntegralTask *tasks,
+    IntegralResult *results
+);
+
+void MasterDestroy(Master *master);
+
 int MasterComputeIntegral(
     const MasterConfig *config,
     const IntegralTask *task,
