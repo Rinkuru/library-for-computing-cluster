@@ -42,6 +42,7 @@ typedef struct {
     MasterWorker *workers;
     int workersCount;
     int workersCapacity;
+    int maxTimeMs;
 } Master;
 
 int MasterInit(Master *master, const MasterConfig *config);
@@ -52,20 +53,16 @@ int MasterRun(
     IntegralResult *results
 );
 
-int MasterComputeIntegral(
-    const MasterConfig *config,
-    const IntegralTask *task,
-    IntegralResult *result
-);
-
-static inline void MasterPrepareEmpty(Master *master) {
+static inline void MasterPrepareEmpty(Master *master)
+{
     master->listenSocketFd = -1;
     master->workers = NULL;
     master->workersCount = 0;
     master->workersCapacity = 0;
 }
 
-static inline void MasterDestroy(Master *master) {
+static inline void MasterDestroy(Master *master)
+{
     if (master == NULL) return;
 
     if (master->workers != NULL) {

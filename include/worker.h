@@ -9,7 +9,7 @@ void hello_worker(void);
 typedef struct {
     const char *host;
     int port;
-    int maxTime;
+    int max_time;
 } WorkerConfig;
 
 typedef struct {
@@ -22,13 +22,10 @@ typedef struct {
     IntegralTask task;
     IntegralResult result;
     WorkerResources resources;
+    int maxTime;
 } Worker;
 
-int WorkerInit(
-    Worker *worker,
-    const WorkerConfig *config,
-    const WorkerResources *resources
-);
+int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources);
 
 int WorkerRun(Worker *worker, Method method, Func f);
 

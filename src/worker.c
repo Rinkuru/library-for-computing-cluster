@@ -26,7 +26,8 @@ typedef struct {
     double result;
 } WorkerThreadArgs;
 
-static void WorkerPrepareEmpty(Worker *worker) {
+static void WorkerPrepareEmpty(Worker *worker)
+{
     worker->socketFd = -1;
     worker->task.begin = 0.0;
     worker->task.end = 0.0;
@@ -36,17 +37,8 @@ static void WorkerPrepareEmpty(Worker *worker) {
     worker->resources.cores = 0;
 }
 
-static long NowMs(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        fprintf(stderr, "[NowMs] Unable NowMs\n");
-        return -1;
-    }
-
-    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
-static void SleepMs(long milliseconds) {
+static void SleepMs(long milliseconds)
+{
     struct timespec ts;
     ts.tv_sec = milliseconds / 1000L;
     ts.tv_nsec = (milliseconds % 1000L) * 1000000L;
@@ -54,7 +46,8 @@ static void SleepMs(long milliseconds) {
     while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
 }
 
-static int WriteAll(int socketFd, const void *buffer, size_t size) {
+static int WriteAll(int socketFd, const void *buffer, size_t size)
+{
     const char *data = (const char *)buffer;
     size_t offset = 0U;
 
@@ -71,7 +64,8 @@ static int WriteAll(int socketFd, const void *buffer, size_t size) {
     return 0;
 }
 
-static int ReadAll(int socketFd, void *buffer, size_t size) {
+static int ReadAll(int socketFd, void *buffer, size_t size)
+{
     char *data = (char *)buffer;
     size_t offset = 0U;
 
@@ -88,7 +82,8 @@ static int ReadAll(int socketFd, void *buffer, size_t size) {
     return 0;
 }
 
-static int TryConnectToMaster(const struct addrinfo *address, int *socketFd) {
+static int TryConnectToMaster(const struct addrinfo *address, int *socketFd)
+{
     int currentSocket = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
     if (currentSocket == -1) {
         fprintf(stderr, "[WorkerInit] Unable to create socket\n");
@@ -111,35 +106,19 @@ static int TryConnectToMaster(const struct addrinfo *address, int *socketFd) {
     return 1;
 }
 
-static int ConnectToMaster(
-    const WorkerConfig *config,
-    const struct addrinfo *address,
-    int *socketFd) {
-    long now = NowMs();
-    if (now < 0) {
-        return 1;
-    }
-
-    long deadline = now + (long)config->maxTime;
-
+static int ConnectToMaster(const WorkerConfig *config, const struct addrinfo *address, int *socketFd)
+{
     while (true) {
         int status = TryConnectToMaster(address, socketFd);
         if (status == 0) return 0;
-
         if (status == 1) return 1;
-
-        now = NowMs();
-        if (now >= deadline) {
-            fprintf(stderr, "[WorkerInit] timeout while waiting for master\n");
-            return 1;
-        }
-
         printf("Wait for master to start\n");
         SleepMs(500L);
     }
 }
 
-static void *WorkerThreadFunc(void *threadArgs) {
+static void *WorkerThreadFunc(void *threadArgs)
+{
     WorkerThreadArgs *args = (WorkerThreadArgs *)threadArgs;
     if (args == NULL || args->method == NULL || args->f == NULL) {
         return NULL;
@@ -150,14 +129,13 @@ static void *WorkerThreadFunc(void *threadArgs) {
     return NULL;
 }
 
-void hello_worker(void) {
+void hello_worker(void)
+{
     printf("Hello, i am worker\n");
 }
 
-int WorkerInit(
-    Worker *worker,
-    const WorkerConfig *config,
-    const WorkerResources *resources) {
+int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources)
+{
     if (worker == NULL) {
         return 1;
     }
@@ -168,7 +146,7 @@ int WorkerInit(
         resources == NULL ||
         config->host == NULL ||
         config->port <= 0 ||
-        config->maxTime <= 0 ||
+        config->max_time <= 0 ||
         resources->threads <= 0 ||
         resources->cores <= 0) {
         return 1;
@@ -181,7 +159,6 @@ int WorkerInit(
     }
 
     struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
@@ -201,6 +178,7 @@ int WorkerInit(
 
     worker->socketFd = socketFd;
     worker->resources = *resources;
+    worker->maxTime = config->max_time;
 
     int yes = 1;
     if (setsockopt(worker->socketFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
@@ -217,7 +195,8 @@ int WorkerInit(
     return 0;
 }
 
-int WorkerRun(Worker *worker, Method method, Func f) {
+int WorkerRun(Worker *worker, Method method, Func f)
+{
     if (worker == NULL ||
         method == NULL ||
         f == NULL ||
@@ -238,6 +217,7 @@ int WorkerRun(Worker *worker, Method method, Func f) {
     int status = 0;
     int createdThreads = 0;
 
+    long startTime = NowMs();
     for (int i = 0; i < worker->resources.threads; ++i) {
         args[i].threadI = (size_t)i;
         args[i].method = method;
@@ -274,6 +254,12 @@ int WorkerRun(Worker *worker, Method method, Func f) {
             status = 1;
             break;
         }
+        
+        if (NowMs() - startTime > worker->maxTime) {
+            fprintf(stderr, "[MasterRun] Deadline the time limit\n");
+            status = 1;
+            break;
+        }
 
         createdThreads += 1;
     }
@@ -281,9 +267,7 @@ int WorkerRun(Worker *worker, Method method, Func f) {
     worker->result.value = 0.0;
     for (int i = 0; i < createdThreads; ++i) {
         int ret = pthread_join(tids[i], NULL);
-        if (ret != 0) {
-            status = 1;
-        }
+        if (ret != 0) status = 1;
 
         worker->result.value += args[i].result;
     }
@@ -294,13 +278,15 @@ int WorkerRun(Worker *worker, Method method, Func f) {
     return status;
 }
 
-int WorkerSendResult(Worker *worker) {
+int WorkerSendResult(Worker *worker)
+{
     if (worker == NULL || worker->socketFd < 0) return 1;
 
     return WriteAll(worker->socketFd, &worker->result, sizeof(worker->result));
 }
 
-void WorkerDestroy(Worker *worker) {
+void WorkerDestroy(Worker *worker)
+{
     if (worker == NULL) return;
 
     if (worker->socketFd >= 0) {

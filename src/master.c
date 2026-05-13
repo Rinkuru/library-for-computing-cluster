@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include "common.h"
 #include "master.h"
 #include "master_multiplexing.h"
 
@@ -20,13 +21,15 @@ typedef enum {
     TransferFailed
 } TransferStatus;
 
-static void MasterWorkerPrepareEmpty(MasterWorker *worker) {
+static void MasterWorkerPrepareEmpty(MasterWorker *worker)
+{
     worker->socketFd = -1;
     worker->state = MasterWorkerEmpty;
     worker->transferOffset = 0U;
 }
 
-static int MasterPrepare(Master *master, const MasterConfig *config) {
+static int MasterPrepare(Master *master, const MasterConfig *config)
+{
     MasterPrepareEmpty(master);
 
     master->workers = calloc((size_t)config->required_workers, sizeof(MasterWorker));
@@ -40,17 +43,21 @@ static int MasterPrepare(Master *master, const MasterConfig *config) {
         MasterWorkerPrepareEmpty(&master->workers[i]);
     }
 
+    master->maxTimeMs = config->max_time_ms;
+
     return 0;
 }
 
-static int SetNonBlocking(int socketFd) {
+static int SetNonBlocking(int socketFd)
+{
     int flags = fcntl(socketFd, F_GETFL, 0);
     if (flags == -1) return 1;
     if (fcntl(socketFd, F_SETFL, flags | O_NONBLOCK) == -1) return 1;
     return 0;
 }
 
-static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, size_t *offset) {
+static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, size_t *offset)
+{
     const char *data = (const char *)buffer;
     while (*offset < size) {
         ssize_t written = send(socketFd, data + *offset, size - *offset, MSG_NOSIGNAL);
@@ -66,7 +73,8 @@ static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, s
     return TransferComplete;
 }
 
-static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *offset) {
+static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *offset)
+{
     char *data = (char *)buffer;
     while (*offset < size) {
         ssize_t bytesRead = recv(socketFd, data + *offset, size - *offset, 0);
@@ -82,14 +90,16 @@ static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *
     return TransferComplete;
 }
 
-static void CloseWorkerSocket(MasterWorker *worker) {
+static void CloseWorkerSocket(MasterWorker *worker)
+{
     if (worker->socketFd >= 0) {
         close(worker->socketFd);
     }
     worker->socketFd = -1;
 }
 
-static void CloseAllWorkers(Master *master) {
+static void CloseAllWorkers(Master *master)
+{
     for (int i = 0; i < master->workersCount; ++i) {
         CloseWorkerSocket(&master->workers[i]);
         if (master->workers[i].state != Done) {
@@ -98,7 +108,8 @@ static void CloseAllWorkers(Master *master) {
     }
 }
 
-static int MasterAcceptWorker(Master *master) {
+static int MasterAcceptWorker(Master *master)
+{
     printf("Wait for client to connect\n");
 
     int workerSocket = accept(master->listenSocketFd, NULL, NULL);
@@ -132,7 +143,8 @@ static int MasterAcceptWorker(Master *master) {
     return 0;
 }
 
-static void PreparePollFds(Master *master, struct pollfd *pollFds) {
+static void PreparePollFds(Master *master, struct pollfd *pollFds)
+{
     if (master->workersCount < master->workersCapacity) {
         pollFds[0].fd = master->listenSocketFd;
         pollFds[0].events = POLLIN;
@@ -170,11 +182,13 @@ static void PreparePollFds(Master *master, struct pollfd *pollFds) {
     }
 }
 
-void hello_master(void) {
+void hello_master(void)
+{
     printf("Hello, i am master\n");
 }
 
-int MasterInit(Master *master, const MasterConfig *config) {
+int MasterInit(Master *master, const MasterConfig *config)
+{
     if (master == NULL ||
         config == NULL ||
         config->port <= 0 ||
@@ -190,10 +204,8 @@ int MasterInit(Master *master, const MasterConfig *config) {
     return 0;
 }
 
-int MasterRun(
-    Master *master,
-    const IntegralTask *tasks,
-    IntegralResult *results) {
+int MasterRun(Master *master,const IntegralTask *tasks, IntegralResult *results)
+{
     if (master == NULL ||
         tasks == NULL ||
         results == NULL ||
@@ -212,6 +224,7 @@ int MasterRun(
     int doneWorkers = 0;
     int status = 0;
 
+    long startTime = NowMs();
     while (doneWorkers < master->workersCapacity) {
         PreparePollFds(master, pollFds);
 
@@ -308,6 +321,12 @@ int MasterRun(
                     break;
                 }
             }
+        }
+
+        if (NowMs() - startTime > master->maxTimeMs) {
+            fprintf(stderr, "[MasterRun] Deadline the time limit\n");
+            status = 1;
+            break;
         }
     }
 

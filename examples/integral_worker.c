@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <math.h>
 
-static double SimpleFunc(double x) {
+static double SimpleFunc(double x)
+{
     return (double)4.0 / (1.0 + x*x); 
 }
 
-static double HardFunc(double x) {
+static double HardFunc(double x)
+{
     return 2.0 + sin(2000000.0 * x);
 }
 
@@ -20,7 +22,7 @@ int main(void)
     WorkerConfig config = {
         .host = "127.0.0.1",
         .port = 1337,
-        .maxTime= 180000,
+        .max_time= 180000,
     };
     Worker worker;
     int status = 0;
