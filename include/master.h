@@ -23,8 +23,18 @@ typedef struct {
     double value;
 } IntegralResult;
 
+typedef enum {
+    MasterWorkerEmpty = 0,
+    SendTask,
+    ReadResult,
+    Done,
+    Failed
+} MasterWorkerState;
+
 typedef struct {
     int socketFd;
+    MasterWorkerState state;
+    size_t transferOffset;
 } MasterWorker;
 
 typedef struct {
@@ -37,7 +47,7 @@ typedef struct {
 int MasterInit(Master *master, const MasterConfig *config);
 
 int MasterRun(
-    const Master *master,
+    Master *master,
     const IntegralTask *tasks,
     IntegralResult *results
 );
@@ -48,22 +58,14 @@ int MasterComputeIntegral(
     IntegralResult *result
 );
 
-typedef struct {
-    long workerI;
-    int socketFd;
-    IntegralTask task;
-    IntegralResult *result;
-    int status;
-} MasterThreadArgs;
-
-static void MasterPrepareEmpty(Master *master) {
+static inline void MasterPrepareEmpty(Master *master) {
     master->listenSocketFd = -1;
     master->workers = NULL;
     master->workersCount = 0;
     master->workersCapacity = 0;
 }
 
-static void MasterDestroy(Master *master) {
+static inline void MasterDestroy(Master *master) {
     if (master == NULL) return;
 
     if (master->workers != NULL) {

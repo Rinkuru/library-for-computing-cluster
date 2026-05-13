@@ -1,4 +1,6 @@
-#include "master.h"
+#define _GNU_SOURCE
+
+#include "master_multiplexing.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
