@@ -189,6 +189,11 @@ void hello_master(void)
 
 int MasterInit(Master *master, const MasterConfig *config)
 {
+    if (master == NULL) {
+        fprintf(stderr, "[MasterInit] NULL master\n");
+        return 1;
+    }
+
     if (master == NULL ||
         config == NULL ||
         config->port <= 0 ||
@@ -242,6 +247,7 @@ int MasterRun(Master *master,const IntegralTask *tasks, IntegralResult *results)
             break;
         }
 
+        printf("I'm waiting worker\n");
         if ((pollFds[0].revents & POLLIN) != 0) {
             if (MasterAcceptWorker(master) != 0) {
                 status = 1;

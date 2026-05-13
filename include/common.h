@@ -6,7 +6,7 @@
 
 typedef double (*Func)(double x);
 
-typedef double (*Method)();
+typedef double (*Method)(Func f, double a, double b, double eps);
 
 static long NowMs(void)
 {

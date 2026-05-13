@@ -55,6 +55,12 @@ static int WriteAll(int socketFd, const void *buffer, size_t size)
         ssize_t written = send(socketFd, data + offset, size - offset, 0);
         if (written == -1) {
             if (errno == EINTR) continue;
+            fprintf(stderr, "[WorkerIO] Unable to send data\n");
+            return 1;
+        }
+
+        if (written == 0) {
+            fprintf(stderr, "[WorkerIO] Socket sent zero bytes\n");
             return 1;
         }
 
@@ -73,6 +79,12 @@ static int ReadAll(int socketFd, void *buffer, size_t size)
         ssize_t bytesRead = recv(socketFd, data + offset, size - offset, 0);
         if (bytesRead == -1) {
             if (errno == EINTR) continue;
+            fprintf(stderr, "[WorkerIO] Unable to receive data\n");
+            return 1;
+        }
+
+        if (bytesRead == 0) {
+            fprintf(stderr, "[WorkerIO] Connection closed while receiving data\n");
             return 1;
         }
 
@@ -106,12 +118,15 @@ static int TryConnectToMaster(const struct addrinfo *address, int *socketFd)
     return 1;
 }
 
-static int ConnectToMaster(const WorkerConfig *config, const struct addrinfo *address, int *socketFd)
+static int ConnectToMaster(const struct addrinfo *address, int *socketFd)
 {
     while (true) {
         int status = TryConnectToMaster(address, socketFd);
         if (status == 0) return 0;
-        if (status == 1) return 1;
+        if (status == 1) {
+            fprintf(stderr, "[WorkerInit] Unable to connect to master\n");
+            return 1;
+        }
         printf("Wait for master to start\n");
         SleepMs(500L);
     }
@@ -137,6 +152,7 @@ void hello_worker(void)
 int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources)
 {
     if (worker == NULL) {
+        fprintf(stderr, "[WorkerInit] NULL worker\n");
         return 1;
     }
 
@@ -149,22 +165,28 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
         config->max_time <= 0 ||
         resources->threads <= 0 ||
         resources->cores <= 0) {
+        fprintf(stderr, "[WorkerInit] NULL config\n");
         return 1;
     }
 
     char port[16];
     int ret = snprintf(port, sizeof(port), "%d", config->port);
     if (ret <= 0 || (size_t)ret >= sizeof(port)) {
+        fprintf(stderr, "[WorkerInit] Unable to format port\n");
         return 1;
     }
 
     struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
     struct addrinfo *addresses = NULL;
     ret = getaddrinfo(config->host, port, &hints, &addresses);
-    if (ret != 0) return 1;
+    if (ret != 0) {
+        fprintf(stderr, "[WorkerInit] Unable to resolve master address\n");
+        return 1;
+    }
 
     if (addresses->ai_next != NULL) {
         fprintf(stderr, "[WorkerInit] Ambiguous result of getaddrinfo\n");
@@ -173,8 +195,12 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
     }
 
     int socketFd = -1;
-    ret = ConnectToMaster(config, addresses, &socketFd);
-    if (ret != 0 || socketFd == -1) return 1;
+    ret = ConnectToMaster(addresses, &socketFd);
+    if (ret != 0 || socketFd == -1) {
+        fprintf(stderr, "[WorkerInit] Unable to connect to master before timeout\n");
+        freeaddrinfo(addresses);
+        return 1;
+    }
 
     worker->socketFd = socketFd;
     worker->resources = *resources;
@@ -182,11 +208,15 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
 
     int yes = 1;
     if (setsockopt(worker->socketFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
+        fprintf(stderr, "[WorkerInit] Unable to enable TCP_NODELAY\n");
+        freeaddrinfo(addresses);
         WorkerDestroy(worker);
         return 1;
     }
 
     if (ReadAll(worker->socketFd, &worker->task, sizeof(worker->task)) != 0) {
+        fprintf(stderr, "[WorkerInit] Unable to read task from master\n");
+        freeaddrinfo(addresses);
         WorkerDestroy(worker);
         return 1;
     }
@@ -202,12 +232,14 @@ int WorkerRun(Worker *worker, Method method, Func f)
         f == NULL ||
         worker->resources.threads <= 0 ||
         worker->resources.cores <= 0) {
+        fprintf(stderr, "[WorkerRun] NULL config\n");
         return 1;
     }
 
     pthread_t *tids = calloc((size_t)worker->resources.threads, sizeof(pthread_t));
     WorkerThreadArgs *args = calloc((size_t)worker->resources.threads, sizeof(WorkerThreadArgs));
     if (tids == NULL || args == NULL) {
+        fprintf(stderr, "[WorkerRun] Unable to allocate thread resources\n");
         free(tids);
         free(args);
         return 1;
@@ -230,6 +262,7 @@ int WorkerRun(Worker *worker, Method method, Func f)
         pthread_attr_t threadAttributes;
         int ret = pthread_attr_init(&threadAttributes);
         if (ret != 0) {
+            fprintf(stderr, "[WorkerRun] Unable to initialize thread attributes\n");
             status = 1;
             break;
         }
@@ -243,6 +276,7 @@ int WorkerRun(Worker *worker, Method method, Func f)
             sizeof(cpu_set_t),
             &assignedHarts);
         if (ret != 0) {
+            fprintf(stderr, "[WorkerRun] Unable to set thread affinity\n");
             pthread_attr_destroy(&threadAttributes);
             status = 1;
             break;
@@ -251,12 +285,13 @@ int WorkerRun(Worker *worker, Method method, Func f)
         ret = pthread_create(&tids[i], &threadAttributes, WorkerThreadFunc, &args[i]);
         pthread_attr_destroy(&threadAttributes);
         if (ret != 0) {
+            fprintf(stderr, "[WorkerRun] Unable to create thread\n");
             status = 1;
             break;
         }
         
         if (NowMs() - startTime > worker->maxTime) {
-            fprintf(stderr, "[MasterRun] Deadline the time limit\n");
+            fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
             status = 1;
             break;
         }
@@ -267,7 +302,16 @@ int WorkerRun(Worker *worker, Method method, Func f)
     worker->result.value = 0.0;
     for (int i = 0; i < createdThreads; ++i) {
         int ret = pthread_join(tids[i], NULL);
-        if (ret != 0) status = 1;
+        if (ret != 0) {
+            fprintf(stderr, "[WorkerRun] Unable to join thread\n");
+            status = 1;
+        }
+
+        if (NowMs() - startTime > worker->maxTime) {
+            fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
+            status = 1;
+            break;
+        }
 
         worker->result.value += args[i].result;
     }
@@ -280,9 +324,17 @@ int WorkerRun(Worker *worker, Method method, Func f)
 
 int WorkerSendResult(Worker *worker)
 {
-    if (worker == NULL || worker->socketFd < 0) return 1;
+    if (worker == NULL || worker->socketFd < 0) {
+        fprintf(stderr, "[WorkerSendResult] NULL worker\n");
+        return 1;
+    }
 
-    return WriteAll(worker->socketFd, &worker->result, sizeof(worker->result));
+    if (WriteAll(worker->socketFd, &worker->result, sizeof(worker->result)) != 0) {
+        fprintf(stderr, "[WorkerSendResult] Unable to send result to master\n");
+        return 1;
+    }
+
+    return 0;
 }
 
 void WorkerDestroy(Worker *worker)

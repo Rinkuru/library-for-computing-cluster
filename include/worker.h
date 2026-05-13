@@ -10,6 +10,7 @@ typedef struct {
     const char *host;
     int port;
     int max_time;
+    Method method;
 } WorkerConfig;
 
 typedef struct {

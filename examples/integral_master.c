@@ -1,7 +1,24 @@
 #include "master.h"
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+void ParseArgs(int argc, char **argv, MasterConfig *config)
+{
+    char *required_workers = "--workers";
+    char *timeout = "--timeout";
+    if (argc > 1) {
+        for (int i = 1; i < argc; ++i) {
+            if (strcmp(argv[i], required_workers) == 0)
+                config->required_workers = (int)strtoul(argv[i+1], NULL, 10);
+            if (strcmp(argv[i], timeout) == 0)
+                config->max_time_ms = (int)strtoul(argv[i+1], NULL, 10);
+        }
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -11,7 +28,7 @@ int main(int argc, char **argv)
         .host = "127.0.0.1",
         .port = 1337,
         .required_workers = 1,
-        .max_time_ms = 180000L,
+        .max_time_ms = 18000,
     };
 
     IntegralTask task = {
@@ -19,6 +36,8 @@ int main(int argc, char **argv)
         .end = 1.0,
         .eps = 1e-6,
     };
+
+    ParseArgs(argc, argv, &config);
 
     IntegralResult result;
     Master master;
