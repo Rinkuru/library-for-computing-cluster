@@ -1,6 +1,9 @@
 #ifndef MASTER_H
 #define MASTER_H
 
+#include <stdlib.h>
+#include <unistd.h>
+
 void hello_master(void);
 
 typedef struct {
@@ -39,12 +42,45 @@ int MasterRun(
     IntegralResult *results
 );
 
-void MasterDestroy(Master *master);
-
 int MasterComputeIntegral(
     const MasterConfig *config,
     const IntegralTask *task,
     IntegralResult *result
 );
+
+typedef struct {
+    long workerI;
+    int socketFd;
+    IntegralTask task;
+    IntegralResult *result;
+    int status;
+} MasterThreadArgs;
+
+static void MasterPrepareEmpty(Master *master) {
+    master->listenSocketFd = -1;
+    master->workers = NULL;
+    master->workersCount = 0;
+    master->workersCapacity = 0;
+}
+
+static void MasterDestroy(Master *master) {
+    if (master == NULL) return;
+
+    if (master->workers != NULL) {
+        for (int i = 0; i < master->workersCapacity; ++i) {
+            if (master->workers[i].socketFd >= 0) {
+                close(master->workers[i].socketFd);
+            }
+        }
+
+        free(master->workers);
+    }
+
+    if (master->listenSocketFd >= 0) {
+        close(master->listenSocketFd);
+    }
+
+    MasterPrepareEmpty(master);
+}
 
 #endif

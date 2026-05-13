@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "master.h"
+#include "master_multiplexing.c"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -12,24 +13,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
 #define NUM_HARDWARE_THREADS 4U
-#define MASTER_ACCEPT_TIMEOUT_MS 180000L
 
-typedef struct {
-    long workerI;
-    int socketFd;
-    IntegralTask task;
-    IntegralResult *result;
-    int status;
-} MasterThreadArgs;
+static int MasterPrepare(Master *master, const MasterConfig *config) {
+    MasterPrepareEmpty(master);
+
+    master->workers = calloc((size_t)config->required_workers, sizeof(MasterWorker));
+    if (master->workers == NULL) {
+        fprintf(stderr, "[MasterInit] Unable to calloc\n");
+        return 1;
+    }
+
+    master->workersCapacity = config->required_workers;
+    for (int i = 0; i < config->required_workers; ++i) {
+        master->workers[i].socketFd = -1;
+    }
+    return 0;
+}
 
 static long NowMs(void) {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        fprintf(stderr, "[NowMs] Unable HowMs\n");
         return -1;
     }
 
@@ -84,13 +94,6 @@ static int ReadAll(int socketFd, void *buffer, size_t size) {
     return 0;
 }
 
-static void MasterPrepareEmpty(Master *master) {
-    master->listenSocketFd = -1;
-    master->workers = NULL;
-    master->workersCount = 0;
-    master->workersCapacity = 0;
-}
-
 static void *MasterThreadFunc(void *threadArgs) {
     MasterThreadArgs *args = (MasterThreadArgs *)threadArgs;
     if (args == NULL || args->result == NULL) {
@@ -112,66 +115,30 @@ void hello_master(void) {
 }
 
 int MasterInit(Master *master, const MasterConfig *config) {
+
+    // Маскируем все остальные сигналы на время вызова обработчика сигнала. то что называется init_shutdown_control() из server-common.h
+
     if (master == NULL || config == NULL || config->port <= 0 || config->required_workers <= 0) {
+        fprintf(stderr, "[MasterInit] NULL config\n");
         return 1;
     }
 
-    MasterPrepareEmpty(master);
+    if (MasterPrepare(master, config)) return 1;
 
-    master->workers = calloc((size_t)config->required_workers, sizeof(MasterWorker));
-    if (master->workers == NULL) {
-        return 1;
-    }
-
-    master->workersCapacity = config->required_workers;
-    for (int i = 0; i < config->required_workers; ++i) {
-        master->workers[i].socketFd = -1;
-    }
-
-    master->listenSocketFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (master->listenSocketFd == -1) {
-        MasterDestroy(master);
-        return 1;
-    }
-
-    int yes = 1;
-    if (setsockopt(master->listenSocketFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
-        MasterDestroy(master);
-        return 1;
-    }
-
-    struct sockaddr_in listenAddr;
-    memset(&listenAddr, 0, sizeof(listenAddr));
-    listenAddr.sin_family = AF_INET;
-    listenAddr.sin_port = htons((uint16_t)config->port);
-
-    if (config->host == NULL) {
-        listenAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    } else if (inet_pton(AF_INET, config->host, &listenAddr.sin_addr) != 1) {
-        MasterDestroy(master);
-        return 1;
-    }
-
-    if (bind(master->listenSocketFd, (struct sockaddr *)&listenAddr, sizeof(listenAddr)) == -1) {
-        MasterDestroy(master);
-        return 1;
-    }
-
-    if (listen(master->listenSocketFd, config->required_workers) == -1) {
-        MasterDestroy(master);
-        return 1;
-    }
+    if (MasterInitListenSocket(master, config)) return 1;
 
     long deadline = NowMs();
-    if (deadline < 0) {
-        MasterDestroy(master);
-        return 1;
-    }
-    deadline += MASTER_ACCEPT_TIMEOUT_MS;
+    deadline += config->max_time_ms;
 
-    while (master->workersCount < config->required_workers) {
+    while (true) {
+
+        if (master->workersCount == config->required_workers) {
+            break;
+        }
+
         long now = NowMs();
         if (now < 0 || now >= deadline) {
+            fprintf(stderr, "[MasterInit] deadline expired\n");
             MasterDestroy(master);
             return 1;
         }
@@ -184,35 +151,35 @@ int MasterInit(Master *master, const MasterConfig *config) {
         int timeout = (int)(deadline - now);
         int pollResult = poll(&pollFd, 1U, timeout);
         if (pollResult == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-
+            fprintf(stderr, "[MasterInit] Unable to poll-wait for data on descriptors\n");
             MasterDestroy(master);
             return 1;
         }
 
         if (pollResult == 0) {
+            fprintf(stderr, "[MasterInit] timeout connect\n");
             MasterDestroy(master);
             return 1;
         }
 
         if ((pollFd.revents & POLLIN) == 0) {
+            fprintf(stderr, "[MasterInit] Unebale POLLIN");
             MasterDestroy(master);
             return 1;
         }
+
+        printf("Wait for client to connect\n");
 
         int workerSocket = accept(master->listenSocketFd, NULL, NULL);
         if (workerSocket == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-
+            fprintf(stderr, "[MasterInit] Unable to accept() connection on a socket\n");
             MasterDestroy(master);
             return 1;
         }
 
+        int yes = 1;
         if (setsockopt(workerSocket, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
+            fprintf(stderr, "[server_accept_connection_request] Unable to enable TCP_NODELAY socket option");
             close(workerSocket);
             MasterDestroy(master);
             return 1;
@@ -231,12 +198,14 @@ int MasterRun(
     const IntegralTask *tasks,
     IntegralResult *results) {
     if (master == NULL || tasks == NULL || results == NULL || master->workersCount <= 0) {
+        fprintf(stderr, "[MasterRun] NULL config\n");
         return 1;
     }
 
     pthread_t *tids = calloc((size_t)master->workersCount, sizeof(pthread_t));
     MasterThreadArgs *args = calloc((size_t)master->workersCount, sizeof(MasterThreadArgs));
     if (tids == NULL || args == NULL) {
+        fprintf(stderr, "[MasterRun] Unable to calloc\n");
         free(tids);
         free(args);
         return 1;
@@ -291,73 +260,6 @@ int MasterRun(
 
     free(tids);
     free(args);
-
-    return status;
-}
-
-void MasterDestroy(Master *master) {
-    if (master == NULL) {
-        return;
-    }
-
-    if (master->workers != NULL) {
-        for (int i = 0; i < master->workersCapacity; ++i) {
-            if (master->workers[i].socketFd >= 0) {
-                close(master->workers[i].socketFd);
-                master->workers[i].socketFd = -1;
-            }
-        }
-
-        free(master->workers);
-    }
-
-    if (master->listenSocketFd >= 0) {
-        close(master->listenSocketFd);
-    }
-
-    MasterPrepareEmpty(master);
-}
-
-int MasterComputeIntegral(
-    const MasterConfig *config,
-    const IntegralTask *task,
-    IntegralResult *result) {
-    if (config == NULL || task == NULL || result == NULL || config->required_workers <= 0) {
-        return 1;
-    }
-
-    Master master;
-    if (MasterInit(&master, config) != 0) {
-        return 1;
-    }
-
-    IntegralTask *tasks = calloc((size_t)config->required_workers, sizeof(IntegralTask));
-    IntegralResult *results = calloc((size_t)config->required_workers, sizeof(IntegralResult));
-    if (tasks == NULL || results == NULL) {
-        free(tasks);
-        free(results);
-        MasterDestroy(&master);
-        return 1;
-    }
-
-    double length = task->end - task->begin;
-    for (int i = 0; i < config->required_workers; ++i) {
-        tasks[i].begin = task->begin + length * (double)i / (double)config->required_workers;
-        tasks[i].end = task->begin + length * (double)(i + 1) / (double)config->required_workers;
-        tasks[i].eps = task->eps / (double)config->required_workers;
-    }
-
-    int status = MasterRun(&master, tasks, results);
-    if (status == 0) {
-        result->value = 0.0;
-        for (int i = 0; i < config->required_workers; ++i) {
-            result->value += results[i].value;
-        }
-    }
-
-    free(tasks);
-    free(results);
-    MasterDestroy(&master);
 
     return status;
 }

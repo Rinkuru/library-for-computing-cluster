@@ -7,7 +7,8 @@ find_package(Threads REQUIRED)
 add_library(cluster STATIC
     src/master.c
     src/worker.c
-    src/integral.c)
+    src/integral.c
+    src/master_multiplexing.c)
 
 target_include_directories(cluster PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

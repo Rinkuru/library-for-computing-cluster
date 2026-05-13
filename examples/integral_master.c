@@ -11,7 +11,7 @@ int main(void)
         .host = "127.0.0.1",
         .port = 1337,
         .required_workers = 1,
-        .max_time_ms = 10000,
+        .max_time_ms = 180000L,
     };
 
     IntegralTask task = {
@@ -34,7 +34,7 @@ int main(void)
         return 1;
     }
 
-    //TODO сделать разбиение задачи на необходимо кол-во рабочих узлов. Равномерно, пока что.
+    //TODO сделать разбиение задачи на необходимое кол-во рабочих узлов. Равномерно, пока что.
     tasks = calloc((size_t)config.required_workers, sizeof(IntegralTask));
     if (tasks == NULL) {
         fprintf(stderr, "unable to allocate tasks\n");
