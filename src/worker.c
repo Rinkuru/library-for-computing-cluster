@@ -8,10 +8,12 @@
 #include <netinet/tcp.h>
 #include <pthread.h>
 #include <sched.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct {
@@ -34,21 +36,32 @@ static void WorkerPrepareEmpty(Worker *worker) {
     worker->resources.cores = 0;
 }
 
+static long NowMs(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        fprintf(stderr, "[NowMs] Unable NowMs\n");
+        return -1;
+    }
+
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+static void SleepMs(long milliseconds) {
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000L;
+    ts.tv_nsec = (milliseconds % 1000L) * 1000000L;
+
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
+}
+
 static int WriteAll(int socketFd, const void *buffer, size_t size) {
     const char *data = (const char *)buffer;
     size_t offset = 0U;
 
     while (offset < size) {
-        ssize_t written = write(socketFd, data + offset, size - offset);
+        ssize_t written = send(socketFd, data + offset, size - offset, 0);
         if (written == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-
-            return 1;
-        }
-
-        if (written == 0) {
+            if (errno == EINTR) continue;
             return 1;
         }
 
@@ -63,16 +76,9 @@ static int ReadAll(int socketFd, void *buffer, size_t size) {
     size_t offset = 0U;
 
     while (offset < size) {
-        ssize_t bytesRead = read(socketFd, data + offset, size - offset);
+        ssize_t bytesRead = recv(socketFd, data + offset, size - offset, 0);
         if (bytesRead == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-
-            return 1;
-        }
-
-        if (bytesRead == 0) {
+            if (errno == EINTR) continue;
             return 1;
         }
 
@@ -80,6 +86,57 @@ static int ReadAll(int socketFd, void *buffer, size_t size) {
     }
 
     return 0;
+}
+
+static int TryConnectToMaster(const struct addrinfo *address, int *socketFd) {
+    int currentSocket = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+    if (currentSocket == -1) {
+        fprintf(stderr, "[WorkerInit] Unable to create socket\n");
+        return 1;
+    }
+
+    if (connect(currentSocket, address->ai_addr, address->ai_addrlen) == 0) {
+        *socketFd = currentSocket;
+        return 0;
+    }
+
+    int connectErrno = errno;
+    close(currentSocket);
+
+    if (connectErrno == ECONNREFUSED) {
+        return 2;
+    }
+
+    fprintf(stderr, "[WorkerInit] Unable to connect to master\n");
+    return 1;
+}
+
+static int ConnectToMaster(
+    const WorkerConfig *config,
+    const struct addrinfo *address,
+    int *socketFd) {
+    long now = NowMs();
+    if (now < 0) {
+        return 1;
+    }
+
+    long deadline = now + (long)config->maxTime;
+
+    while (true) {
+        int status = TryConnectToMaster(address, socketFd);
+        if (status == 0) return 0;
+
+        if (status == 1) return 1;
+
+        now = NowMs();
+        if (now >= deadline) {
+            fprintf(stderr, "[WorkerInit] timeout while waiting for master\n");
+            return 1;
+        }
+
+        printf("Wait for master to start\n");
+        SleepMs(500L);
+    }
 }
 
 static void *WorkerThreadFunc(void *threadArgs) {
@@ -111,6 +168,7 @@ int WorkerInit(
         resources == NULL ||
         config->host == NULL ||
         config->port <= 0 ||
+        config->maxTime <= 0 ||
         resources->threads <= 0 ||
         resources->cores <= 0) {
         return 1;
@@ -129,30 +187,17 @@ int WorkerInit(
 
     struct addrinfo *addresses = NULL;
     ret = getaddrinfo(config->host, port, &hints, &addresses);
-    if (ret != 0) {
+    if (ret != 0) return 1;
+
+    if (addresses->ai_next != NULL) {
+        fprintf(stderr, "[WorkerInit] Ambiguous result of getaddrinfo\n");
+        freeaddrinfo(addresses);
         return 1;
     }
 
     int socketFd = -1;
-    for (struct addrinfo *addr = addresses; addr != NULL; addr = addr->ai_next) {
-        socketFd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if (socketFd == -1) {
-            continue;
-        }
-
-        if (connect(socketFd, addr->ai_addr, addr->ai_addrlen) == 0) {
-            break;
-        }
-
-        close(socketFd);
-        socketFd = -1;
-    }
-
-    freeaddrinfo(addresses);
-
-    if (socketFd == -1) {
-        return 1;
-    }
+    ret = ConnectToMaster(config, addresses, &socketFd);
+    if (ret != 0 || socketFd == -1) return 1;
 
     worker->socketFd = socketFd;
     worker->resources = *resources;
@@ -168,6 +213,7 @@ int WorkerInit(
         return 1;
     }
 
+    freeaddrinfo(addresses);
     return 0;
 }
 
@@ -249,17 +295,13 @@ int WorkerRun(Worker *worker, Method method, Func f) {
 }
 
 int WorkerSendResult(Worker *worker) {
-    if (worker == NULL || worker->socketFd < 0) {
-        return 1;
-    }
+    if (worker == NULL || worker->socketFd < 0) return 1;
 
     return WriteAll(worker->socketFd, &worker->result, sizeof(worker->result));
 }
 
 void WorkerDestroy(Worker *worker) {
-    if (worker == NULL) {
-        return;
-    }
+    if (worker == NULL) return;
 
     if (worker->socketFd >= 0) {
         close(worker->socketFd);
