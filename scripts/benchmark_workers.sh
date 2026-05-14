@@ -2,6 +2,7 @@
 
 MASTER="./build/examples/integral_master"
 WORKER="./build/examples/integral_worker"
+LOGFILE="scripts/test.log"
 
 if [ ! -x "$MASTER" ] || [ ! -x "$WORKER" ]; then
     echo "Run this script from project directory after build"
@@ -12,10 +13,8 @@ fi
 for workers in 1 2 4; do
     echo "workers: $workers"
 
-    rm -f "master-$workers.log" worker-"$workers"-*.log
-
-    echo "workers: $workers" > "scripts/test.log"
-    "$MASTER" --workers "$workers" --timeout 6000000 --end > "scripts/test.log" 2>&1 &
+    echo "workers: $workers" >> $LOGFILE
+    "$MASTER" --workers "$workers" --timeout 6000000 --end >> $LOGFILE 2>&1 &
     master_pid=$!
 
     sleep 1
@@ -24,7 +23,7 @@ for workers in 1 2 4; do
 
     worker_pids=()
     for ((i = 0; i < workers; ++i)); do
-        "$WORKER" --method --threads 1 --cores 1 --first-core "$i" --timeout 6000000 > "scripts/test.log" 2>&1 &
+        "$WORKER" --method --threads 1 --cores 1 --first-core "$i" --timeout 6000000 >> $LOGFILE 2>&1 &
         worker_pids[$i]=$!
     done
 
@@ -37,8 +36,7 @@ for workers in 1 2 4; do
     finish=$(date +%s%N)
     elapsed_ms=$(((finish - start) / 1000000))
 
-    grep "Integral:" "master-$workers.log"
-    echo "time: ${elapsed_ms} ms" > "scripts/test.log"
+    echo "time: ${elapsed_ms} ms" >> $LOGFILE
     echo
 
     sleep 1
