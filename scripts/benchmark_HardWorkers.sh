@@ -4,12 +4,6 @@ MASTER="./build/examples/integral_master"
 WORKER="./build/examples/integral_worker"
 LOGFILE="scripts/test.log"
 
-if [ ! -x "$MASTER" ] || [ ! -x "$WORKER" ]; then
-    echo "Run this script from project directory after build"
-    echo "Example: cd project && cmake --build build && ./scripts/benchmark_workers.sh"
-    exit 1
-fi
-
 for workers in 1 2 4; do
     echo "workers: $workers"
 
