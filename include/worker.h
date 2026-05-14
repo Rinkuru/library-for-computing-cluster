@@ -16,6 +16,7 @@ typedef struct {
 typedef struct {
     int threads;
     int cores;
+    int firstCore;
 } WorkerResources;
 
 typedef struct {

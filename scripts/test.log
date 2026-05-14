@@ -1,0 +1,52 @@
+workers: 1
+Hello, i am master
+I'm waiting worker
+Wait for client to connect
+Client connected: 1
+I'm waiting worker
+I'm waiting worker
+Integral: 8.3066961389
+grep: master-1.log: Нет такого файла или каталога
+time: 95559 ms
+
+workers: 2
+Hello, i am master
+I'm waiting worker
+Wait for client to connect
+Client connected: 1
+I'm waiting worker
+I'm waiting worker
+Wait for client to connect
+Client connected: 2
+I'm waiting worker
+I'm waiting worker
+I'm waiting worker
+Integral: 8.3066961393
+grep: master-2.log: Нет такого файла или каталога
+time: 36337 ms
+
+workers: 4
+Hello, i am master
+I'm waiting worker
+Wait for client to connect
+Client connected: 1
+I'm waiting worker
+I'm waiting worker
+Wait for client to connect
+Client connected: 2
+I'm waiting worker
+I'm waiting worker
+Wait for client to connect
+Client connected: 3
+I'm waiting worker
+I'm waiting worker
+Wait for client to connect
+Client connected: 4
+I'm waiting worker
+I'm waiting worker
+I'm waiting worker
+I'm waiting worker
+I'm waiting worker
+Integral: 8.3066961401
+grep: master-4.log: Нет такого файла или каталога
+time: 16847 ms

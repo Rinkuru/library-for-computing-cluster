@@ -35,6 +35,7 @@ static void WorkerPrepareEmpty(Worker *worker)
     worker->result.value = 0.0;
     worker->resources.threads = 0;
     worker->resources.cores = 0;
+    worker->resources.firstCore = 0;
 }
 
 static void SleepMs(long milliseconds)
@@ -164,7 +165,9 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
         config->port <= 0 ||
         config->max_time <= 0 ||
         resources->threads <= 0 ||
-        resources->cores <= 0) {
+        resources->cores <= 0 ||
+        resources->firstCore < 0 ||
+        resources->firstCore + resources->cores > CPU_SETSIZE) {
         fprintf(stderr, "[WorkerInit] NULL config\n");
         return 1;
     }
@@ -231,7 +234,9 @@ int WorkerRun(Worker *worker, Method method, Func f)
         method == NULL ||
         f == NULL ||
         worker->resources.threads <= 0 ||
-        worker->resources.cores <= 0) {
+        worker->resources.cores <= 0 ||
+        worker->resources.firstCore < 0 ||
+        worker->resources.firstCore + worker->resources.cores > CPU_SETSIZE) {
         fprintf(stderr, "[WorkerRun] NULL config\n");
         return 1;
     }
@@ -269,7 +274,9 @@ int WorkerRun(Worker *worker, Method method, Func f)
 
         cpu_set_t assignedHarts;
         CPU_ZERO(&assignedHarts);
-        CPU_SET((size_t)i % (size_t)worker->resources.cores, &assignedHarts);
+        CPU_SET(
+            (size_t)(worker->resources.firstCore + i % worker->resources.cores),
+            &assignedHarts);
 
         ret = pthread_attr_setaffinity_np(
             &threadAttributes,

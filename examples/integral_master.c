@@ -6,16 +6,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ParseArgs(int argc, char **argv, MasterConfig *config)
+void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task)
 {
     char *required_workers = "--workers";
     char *timeout = "--timeout";
+    char *end = "--end";
     if (argc > 1) {
         for (int i = 1; i < argc; ++i) {
             if (strcmp(argv[i], required_workers) == 0)
                 config->required_workers = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], timeout) == 0)
                 config->max_time_ms = (int)strtoul(argv[i+1], NULL, 10);
+            if (strcmp(argv[i], end) == 0)
+                task->end = 10000000000;
         }
     }
 }
@@ -37,7 +40,7 @@ int main(int argc, char **argv)
         .eps = 1e-6,
     };
 
-    ParseArgs(argc, argv, &config);
+    ParseArgs(argc, argv, &config, &task);
 
     IntegralResult result;
     Master master;

@@ -6,6 +6,8 @@
 #include <math.h>
 #include <string.h>
 
+#define LONG_METHOD_STEPS 200000000L
+
 static double SimpleFunc(double x)
 {
     return (double)4.0 / (1.0 + x*x); 
@@ -16,12 +18,33 @@ static double HardFunc(double x)
     return 2.0 + sin(2000000.0 * x);
 }
 
+double LongMethod2(Func f, double a, double b, double eps) {
+    (void)eps;
+
+    const double length = b - a;
+    if (length <= 0.0) {
+        return 0.0;
+    }
+
+    long steps = (long)((double)LONG_METHOD_STEPS * length);
+    if (steps < 1L) {
+        steps = 1L;
+    }
+
+    const double h = length / (double)steps;
+    double sum = 0.0;
+    for (long i = 0; i < steps; ++i) {
+        double x = a + ((double)i + 0.5) * h;
+        sum += f(x);
+    }
+
+    return sum * h;
+}
+
 double LongMethod(Func f, double a, double b, double eps) {
-    (double)a;
-    (double)b;
     (double)eps;
     double sum = 0;
-    for (long i = 0; i < 10000000000; ++i) {
+    for (long i = a; i < b; ++i) {
         sum += f(i);
     }
     return sum;
@@ -32,17 +55,20 @@ void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *res
     char *timeout = "--timeout";
     char *threads = "--threads";
     char *cores = "--cores";
+    char *firstCore = "--first-core";
     char *method = "--method";
     if (argc > 1) {
         for (int i = 1; i < argc; ++i) {
+            if (strcmp(argv[i], method) == 0)
+                config->method = LongMethod;
             if (strcmp(argv[i], timeout) == 0)
                 config->max_time = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], threads) == 0)
                 resources->threads = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], cores) == 0)
                 resources->cores = (int)strtoul(argv[i+1], NULL, 10);
-            if (strcmp(argv[i], method) == 0)
-                config->method = LongMethod;
+            if (strcmp(argv[i], firstCore) == 0)
+                resources->firstCore = (int)strtoul(argv[i+1], NULL, 10);
         }
     }
 }
@@ -64,6 +90,7 @@ int main(int argc, char **argv)
     WorkerResources resources = {
         .threads = 2,
         .cores = 1,
+        .firstCore = 0,
     };
 
     ParseArgs(argc, argv, &config, &resources);
