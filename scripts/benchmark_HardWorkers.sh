@@ -12,8 +12,6 @@ for workers in 1 2 4; do
     "$MASTER" --workers "$workers" --timeout 6000000 --end >> $LOGFILE 2>&1 &
     master_pid=$!
 
-    sleep 1
-
     start=$(date +%s%N)
 
     worker_pids=()
@@ -32,6 +30,6 @@ for workers in 1 2 4; do
     elapsed_ms=$(((finish - start) / 1000000))
 
     echo "time: ${elapsed_ms} ms" >> $LOGFILE
+    echo >> $LOGFILE
 
-    sleep 1
 done
