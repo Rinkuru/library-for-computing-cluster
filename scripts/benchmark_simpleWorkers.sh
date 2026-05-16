@@ -32,6 +32,7 @@ for workers in 1 2 4; do
     elapsed_ms=$(((finish - start) / 1000000))
 
     echo "time: ${elapsed_ms} ms" >> $LOGFILE
+    echo
 
     sleep 1
 done
