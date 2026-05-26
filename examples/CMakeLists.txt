@@ -3,6 +3,3 @@ target_link_libraries(integral_master PRIVATE cluster)
 
 add_executable(integral_worker integral_worker.c)
 target_link_libraries(integral_worker PRIVATE cluster)
-
-add_executable(parallel_slow_simpson parallel_slow_simpson.c)
-target_link_libraries(parallel_slow_simpson PRIVATE cluster)
