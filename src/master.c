@@ -2,7 +2,7 @@
 
 #include "common.h"
 #include "master.h"
-#include "master_multiplexing.h"
+#include "common_multiplexing.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -10,10 +10,12 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 typedef enum {
@@ -21,6 +23,69 @@ typedef enum {
     TransferPending,
     TransferFailed
 } TransferStatus;
+
+typedef struct {
+    struct sigaction previousAction;
+    int active;
+} DeadlineTimer;
+
+static volatile sig_atomic_t deadlineExpired = 0;
+
+static void DeadlineSignalHandler(int signalNumber)
+{
+    (void)signalNumber;
+    deadlineExpired = 1;
+}
+
+static int DeadlineTimerStart(DeadlineTimer *timer, int timeoutMs)
+{
+    if (timer == NULL) return 1;
+
+    memset(timer, 0, sizeof(*timer));
+    deadlineExpired = 0;
+    if (timeoutMs <= 0) return 0;
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = DeadlineSignalHandler;
+    sigemptyset(&action.sa_mask);
+
+    if (sigaction(SIGALRM, &action, &timer->previousAction) == -1) {
+        fprintf(stderr, "[DeadlineTimer] Unable to install SIGALRM handler\n");
+        return 1;
+    }
+
+    struct itimerval timeout;
+    memset(&timeout, 0, sizeof(timeout));
+    timeout.it_value.tv_sec = timeoutMs / 1000;
+    timeout.it_value.tv_usec = (suseconds_t)(timeoutMs % 1000) * 1000;
+
+    if (setitimer(ITIMER_REAL, &timeout, NULL) == -1) {
+        fprintf(stderr, "[DeadlineTimer] Unable to start timer\n");
+        (void)sigaction(SIGALRM, &timer->previousAction, NULL);
+        return 1;
+    }
+
+    timer->active = 1;
+    return 0;
+}
+
+static void DeadlineTimerStop(DeadlineTimer *timer)
+{
+    if (timer == NULL || !timer->active) return;
+
+    struct itimerval timeout;
+    memset(&timeout, 0, sizeof(timeout));
+    (void)setitimer(ITIMER_REAL, &timeout, NULL);
+    (void)sigaction(SIGALRM, &timer->previousAction, NULL);
+    timer->active = 0;
+    deadlineExpired = 0;
+}
+
+static int DeadlineTimerExpired(void)
+{
+    return deadlineExpired != 0;
+}
 
 static void MasterWorkerPrepareEmpty(MasterWorker *worker)
 {
@@ -59,6 +124,10 @@ static int SetNonBlocking(int socketFd)
     if (flags == -1) return 1;
     if (fcntl(socketFd, F_SETFL, flags | O_NONBLOCK) == -1) return 1;
     return 0;
+}
+
+static short SocketPeerClosedEvents(void) {
+    return POLLHUP | POLLRDHUP;
 }
 
 static int PollTimeoutMs(long startTime, int maxTimeMs)
@@ -109,6 +178,7 @@ static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *
 static void CloseWorkerSocket(MasterWorker *worker)
 {
     if (worker->socketFd >= 0) {
+        shutdown(worker->socketFd, SHUT_RDWR);
         close(worker->socketFd);
     }
     worker->socketFd = -1;
@@ -152,6 +222,7 @@ static int MasterAcceptWorker(Master *master, size_t taskDataSize)
         close(workerSocket);
         return 1;
     }
+    ConfigureTcpFailureDetection(workerSocket, master->maxTimeMs);
 
     if (SetNonBlocking(workerSocket) != 0) {  // переводит в неблокирующий режим
         fprintf(stderr, "[MasterRun] Unable to set worker socket nonblocking\n");
@@ -202,12 +273,12 @@ static void PreparePollFds(Master *master, struct pollfd *pollFds)
         case SendTaskSize:
         case SendTaskData:
             pollFd->fd = master->workers[i].socketFd;
-            pollFd->events = POLLOUT;
+            pollFd->events = POLLOUT | POLLRDHUP;
             break;
         case ReadResultSize:
         case ReadResultData:
             pollFd->fd = master->workers[i].socketFd;
-            pollFd->events = POLLIN;
+            pollFd->events = POLLIN | POLLRDHUP;
             break;
         case MasterWorkerEmpty:
         case Done:
@@ -265,11 +336,23 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
         return 1;
     }
 
+    DeadlineTimer deadlineTimer;
+    if (DeadlineTimerStart(&deadlineTimer, master->maxTimeMs) != 0) {
+        free(pollFds);
+        return 1;
+    }
+
     int doneWorkers = 0;
     int status = 0;
 
     long startTime = NowMs();
     while (doneWorkers < master->workersCapacity) {
+        if (DeadlineTimerExpired()) {
+            fprintf(stderr, "[MasterRun] Deadline the time limit\n");
+            status = 1;
+            break;
+        }
+
         PreparePollFds(master, pollFds);
 
         int timeoutMs = PollTimeoutMs(startTime, master->maxTimeMs);
@@ -281,7 +364,14 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
 
         int pollResult = poll(pollFds, (nfds_t)master->workersCapacity + 1U, timeoutMs);
         if (pollResult == -1) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR) {
+                if (DeadlineTimerExpired()) {
+                    fprintf(stderr, "[MasterRun] Deadline the time limit\n");
+                    status = 1;
+                    break;
+                }
+                continue;
+            }
             fprintf(stderr, "[MasterRun] Unable to poll-wait for data on descriptors\n");
             status = 1;
             break;
@@ -292,7 +382,7 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
             break;
         }
 
-        if ((pollFds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+        if ((pollFds[0].revents & (POLLERR | POLLHUP | POLLNVAL | POLLRDHUP)) != 0) {
             fprintf(stderr, "[MasterRun] listen socket failed\n");
             status = 1;
             break;
@@ -340,7 +430,7 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
                     }
                 }
 
-                if ((revents & POLLHUP) != 0 && worker->state == SendTaskSize) {
+                if ((revents & SocketPeerClosedEvents()) != 0 && worker->state == SendTaskSize) {
                     fprintf(stderr, "[MasterRun] worker disconnected before task was sent\n");
                     worker->state = Failed;
                     status = 1;
@@ -372,7 +462,7 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
                     }
                 }
 
-                if ((revents & POLLHUP) != 0 && worker->state == SendTaskData) {
+                if ((revents & SocketPeerClosedEvents()) != 0 && worker->state == SendTaskData) {
                     fprintf(stderr, "[MasterRun] worker disconnected before task was sent\n");
                     worker->state = Failed;
                     status = 1;
@@ -428,7 +518,7 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
                     }
                 }
 
-                if ((revents & POLLHUP) != 0 && worker->state == ReadResultSize) {
+                if ((revents & SocketPeerClosedEvents()) != 0 && worker->state == ReadResultSize) {
                     fprintf(stderr, "[MasterRun] worker disconnected before result was received\n");
                     worker->state = Failed;
                     status = 1;
@@ -459,13 +549,17 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
                     }
                 }
 
-                if ((revents & POLLHUP) != 0 && worker->state == ReadResultData) {
+                if ((revents & SocketPeerClosedEvents()) != 0 && worker->state == ReadResultData) {
                     fprintf(stderr, "[MasterRun] worker disconnected before result was received\n");
                     worker->state = Failed;
                     status = 1;
                     break;
                 }
             }
+        }
+
+        if (status != 0) {
+            break;
         }
 
         if (NowMs() - startTime > master->maxTimeMs) {
@@ -475,6 +569,7 @@ int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *resu
         }
     }
 
+    DeadlineTimerStop(&deadlineTimer);
     free(pollFds);
 
     if (status != 0) {

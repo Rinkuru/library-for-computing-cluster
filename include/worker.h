@@ -3,6 +3,8 @@
 
 #include "common.h"
 
+#include <stdbool.h>
+
 void hello_worker(void);
 
 typedef struct {
@@ -25,6 +27,14 @@ typedef struct {
     WorkerResources resources;
     int maxTime;
 } Worker;
+
+typedef struct {
+    Method method;
+    ClusterThreadTask task;
+    ClusterPacket *result;
+    bool finished;
+    bool joined;
+} WorkerThreadArgs;
 
 int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources);
 
