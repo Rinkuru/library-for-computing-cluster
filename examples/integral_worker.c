@@ -32,14 +32,27 @@ static ClusterPacket *MakeIntegralResultPacket(double value)
 
 static void *RunIntegralTask(void *data, size_t size)
 {
-    if (data == NULL || size != sizeof(IntegralTask)) {
+    if (data == NULL || size != sizeof(ClusterThreadTask)) {
+        return NULL;
+    }
+
+    ClusterThreadTask *threadTask = (ClusterThreadTask *)data;
+    if (threadTask->data == NULL ||
+        threadTask->size != sizeof(IntegralTask) ||
+        threadTask->threadsCount == 0U ||
+        threadTask->threadIndex >= threadTask->threadsCount) {
         return NULL;
     }
 
     IntegralTask task;
-    memcpy(&task, data, sizeof(task));
+    memcpy(&task, threadTask->data, sizeof(task));
 
-    double value = integral_method(integral_func, task.begin, task.end, task.eps);
+    double length = task.end - task.begin;
+    double begin = task.begin + length * (double)threadTask->threadIndex / (double)threadTask->threadsCount;
+    double end = task.begin + length * (double)(threadTask->threadIndex + 1U) / (double)threadTask->threadsCount;
+    double eps = task.eps / (double)threadTask->threadsCount;
+
+    double value = integral_method(integral_func, begin, end, eps);
     return MakeIntegralResultPacket(value);
 }
 

@@ -7,11 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task, int *workerThreads)
+void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task)
 {
     char *required_workers = "--workers";
     char *timeout = "--timeout";
-    char *threads = "--threads";
     char *end = "--end";
     if (argc > 1) {
         for (int i = 1; i < argc; ++i) {
@@ -19,8 +18,6 @@ void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task, 
                 config->required_workers = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], timeout) == 0 && i + 1 < argc)
                 config->max_time_ms = (int)strtoul(argv[i+1], NULL, 10);
-            if (strcmp(argv[i], threads) == 0 && i + 1 < argc)
-                *workerThreads = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], end) == 0)
                 task->end = 10000000000;
         }
@@ -80,7 +77,7 @@ int main(int argc, char **argv)
     MasterConfig config = {
         .host = "127.0.0.1",
         .port = 1337,
-        .required_workers = 2,
+        .required_workers = 1,
         .max_time_ms = 18000,
     };
 
@@ -90,12 +87,7 @@ int main(int argc, char **argv)
         .eps = 1e-6,
     };
 
-    int workerThreads = IntegralDefaultWorkerThreads;
-    ParseArgs(argc, argv, &config, &task, &workerThreads);
-    if (workerThreads <= 0) {
-        fprintf(stderr, "worker threads must be positive\n");
-        return 1;
-    }
+    ParseArgs(argc, argv, &config, &task);
 
     IntegralResult result;
     Master master;
@@ -109,7 +101,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    size_t totalTasks = (size_t)config.required_workers * (size_t)workerThreads;
+    size_t totalTasks = (size_t)config.required_workers;
     tasks = calloc(totalTasks, sizeof(IntegralTask));
     if (tasks == NULL) {
         fprintf(stderr, "unable to allocate tasks\n");

@@ -15,6 +15,13 @@ typedef struct {
     size_t size;
 } ClusterPacket;
 
+typedef struct {
+    size_t threadIndex;
+    size_t threadsCount;
+    void *data;
+    size_t size;
+} ClusterThreadTask;
+
 typedef void *(*Method)(void *data, size_t size);
 
 static inline void ClusterEncodeSize(uint64_t value, unsigned char buffer[ClusterSizeHeaderSize]) {

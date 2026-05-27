@@ -18,8 +18,7 @@
 
 typedef struct {
     Method method;
-    void *data;
-    size_t size;
+    ClusterThreadTask task;
     ClusterPacket *result;
 } WorkerThreadArgs;
 
@@ -181,7 +180,7 @@ static void *WorkerThreadFunc(void *threadArgs)
         return NULL;
     }
 
-    args->result = (ClusterPacket *)args->method(args->data, args->size);
+    args->result = (ClusterPacket *)args->method(&args->task, sizeof(args->task));
     return NULL;
 }
 
@@ -380,15 +379,13 @@ int WorkerRun(Worker *worker, Method method)
     long startTime = NowMs();
     int status = 0;
     int createdThreads = 0;
-    char *taskBytes = (char *)worker->task.data;
 
     for (int i = 0; i < worker->resources.threads; ++i) {
-        size_t begin = SplitPoint(worker->task.size, i, worker->resources.threads);
-        size_t end = SplitPoint(worker->task.size, i + 1, worker->resources.threads);
-
         args[i].method = method;
-        args[i].data = begin == end ? NULL : taskBytes + begin;
-        args[i].size = end - begin;
+        args[i].task.threadIndex = (size_t)i;
+        args[i].task.threadsCount = (size_t)worker->resources.threads;
+        args[i].task.data = worker->task.data;
+        args[i].task.size = worker->task.size;
         args[i].result = NULL;
 
         pthread_attr_t threadAttributes;
