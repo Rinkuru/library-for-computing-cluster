@@ -305,46 +305,6 @@ static void DestroyThreadResults(WorkerThreadArgs *args, int count)
     }
 }
 
-static void TimespecAfterMs(struct timespec *deadline, long milliseconds)
-{
-    clock_gettime(CLOCK_REALTIME, deadline);
-    deadline->tv_sec += milliseconds / 1000L;
-    deadline->tv_nsec += (milliseconds % 1000L) * 1000000L;
-    if (deadline->tv_nsec >= 1000000000L) {
-        deadline->tv_sec += 1L;
-        deadline->tv_nsec -= 1000000000L;
-    }
-}
-
-static int FindUnjoinedFinishedThread(WorkerThreadArgs *args, int count)
-{
-    for (int i = 0; i < count; ++i) {
-        if (args[i].finished && !args[i].joined) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-static int JoinFinishedThreads(pthread_t *tids, WorkerThreadArgs *args, int count, int *joinedThreads)
-{
-    for (;;) {
-        int threadIndex = FindUnjoinedFinishedThread(args, count);
-
-        if (threadIndex == -1) {
-            return 0;
-        }
-
-        int ret = pthread_join(tids[threadIndex], NULL);
-        if (ret != 0) {
-            fprintf(stderr, "[WorkerRun] Unable to join thread\n");
-            return 1;
-        } else {
-            *joinedThreads += 1;
-        }
-    }
-}
-
 static void *WorkerThreadFunc(void *threadArgs)
 {
     WorkerThreadArgs *args = (WorkerThreadArgs *)threadArgs;
@@ -352,10 +312,56 @@ static void *WorkerThreadFunc(void *threadArgs)
         return NULL;
     }
 
+    BlockDeadlineSignalForMethod();
+    if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) != 0 ||
+        pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL) != 0) {
+        fprintf(stderr, "[WorkerRun] Unable to configure thread cancellation\n");
+        return NULL;
+    }
+
     args->result = (ClusterPacket *)args->method(&args->task, sizeof(args->task));
     args->finished = true;
 
     return NULL;
+}
+
+static void CancelUnjoinedThreads(pthread_t *tids, WorkerThreadArgs *args, int count)
+{
+    for (int i = 0; i < count; ++i) {
+        if (!args[i].joined) {
+            (void)pthread_cancel(tids[i]);
+        }
+    }
+}
+
+static int JoinReadyThreads(pthread_t *tids, WorkerThreadArgs *args, int count, int *joinedThreads)
+{
+    int status = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (args[i].joined) continue;
+
+        void *threadResult = NULL;
+        int ret = pthread_tryjoin_np(tids[i], &threadResult);
+        if (ret == EBUSY) {
+            continue;
+        }
+        if (ret != 0) {
+            fprintf(stderr, "[WorkerRun] Unable to join thread\n");
+            args[i].joined = true;
+            *joinedThreads += 1;
+            status = 1;
+            continue;
+        }
+
+        args[i].joined = true;
+        *joinedThreads += 1;
+        if (threadResult == PTHREAD_CANCELED) {
+            status = 1;
+        }
+    }
+
+    return status;
 }
 
 static int AddSize(size_t *sum, size_t value)
@@ -574,8 +580,22 @@ int WorkerRun(Worker *worker, Method method)
     int status = 0;
     int createdThreads = 0;
     int joinedThreads = 0;
+    int deadlineReported = 0;
+    int cancelRequested = 0;
+    DeadlineTimer deadlineTimer;
+    if (DeadlineTimerStart(&deadlineTimer, worker->maxTime) != 0) {
+        free(tids);
+        free(args);
+        return 1;
+    }
 
     for (int i = 0; i < worker->resources.threads; ++i) {
+        if (DeadlineExceeded(startTime, worker->maxTime, &deadlineReported)) {
+            status = 1;
+            cancelRequested = 1;
+            CancelUnjoinedThreads(tids, args, createdThreads);
+            break;
+        }
         if (WorkerCheckMasterAlive(worker->socketFd) != 0) {
             status = 1;
             break;
@@ -622,31 +642,41 @@ int WorkerRun(Worker *worker, Method method)
         }
 
         createdThreads += 1;
-        if (NowMs() - startTime > worker->maxTime) {
-            fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
+        if (DeadlineExceeded(startTime, worker->maxTime, &deadlineReported)) {
             status = 1;
+            cancelRequested = 1;
+            CancelUnjoinedThreads(tids, args, createdThreads);
             break;
         }
     }
 
     while (joinedThreads < createdThreads) {
-        while (FindUnjoinedFinishedThread(args, createdThreads) == -1) {
-            struct timespec deadline;
-            TimespecAfterMs(&deadline, 100L);
+        if (JoinReadyThreads(tids, args, createdThreads, &joinedThreads) != 0) {
+            status = 1;
+        }
+        if (joinedThreads >= createdThreads) {
             break;
         }
 
-        if (JoinFinishedThreads(tids, args, createdThreads, &joinedThreads) != 0) {
+        if (!cancelRequested &&
+            DeadlineExceeded(startTime, worker->maxTime, &deadlineReported)) {
+            status = 1;
+            cancelRequested = 1;
+            CancelUnjoinedThreads(tids, args, createdThreads);
+        }
+
+        if (!cancelRequested && WorkerCheckMasterAlive(worker->socketFd) != 0) {
             status = 1;
         }
-        if (WorkerCheckMasterAlive(worker->socketFd) != 0) {
-            status = 1;
-        }
-        if (NowMs() - startTime > worker->maxTime) {
-            fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
-            status = 1;
-        }
+
+        SleepMs(10L);
     }
+
+    if (DeadlineExceeded(startTime, worker->maxTime, &deadlineReported)) {
+        status = 1;
+    }
+
+    DeadlineTimerStop(&deadlineTimer);
 
     if (status == 0 && PackThreadResults(args, worker->resources.threads, &worker->result) != 0) {
         status = 1;
