@@ -2,7 +2,6 @@
 #define WORKER_H
 
 #include "common.h"
-#include "master.h"
 
 void hello_worker(void);
 
@@ -21,15 +20,15 @@ typedef struct {
 
 typedef struct {
     int socketFd;
-    IntegralTask task;
-    IntegralResult result;
+    ClusterPacket task;
+    ClusterPacket result;
     WorkerResources resources;
     int maxTime;
 } Worker;
 
 int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources);
 
-int WorkerRun(Worker *worker, Method method, Func f);
+int WorkerRun(Worker *worker, Method method);
 
 int WorkerSendResult(Worker *worker);
 

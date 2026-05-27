@@ -1,6 +1,8 @@
 #ifndef MASTER_H
 #define MASTER_H
 
+#include "common.h"
+
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -13,20 +15,12 @@ typedef struct {
     int max_time_ms;
 } MasterConfig;
 
-typedef struct {
-    double begin;
-    double end;
-    double eps;
-} IntegralTask;
-
-typedef struct {
-    double value;
-} IntegralResult;
-
 typedef enum {
     MasterWorkerEmpty = 0,
-    SendTask,
-    ReadResult,
+    SendTaskSize,
+    SendTaskData,
+    ReadResultSize,
+    ReadResultData,
     Done,
     Failed
 } MasterWorkerState;
@@ -35,6 +29,10 @@ typedef struct {
     int socketFd;
     MasterWorkerState state;
     size_t transferOffset;
+    size_t taskOffset;
+    size_t taskSize;
+    size_t resultSize;
+    unsigned char sizeBuffer[ClusterSizeHeaderSize];
 } MasterWorker;
 
 typedef struct {
@@ -49,8 +47,9 @@ int MasterInit(Master *master, const MasterConfig *config);
 
 int MasterRun(
     Master *master,
-    const IntegralTask *tasks,
-    IntegralResult *results
+    const void *data,
+    size_t size,
+    ClusterPacket *results
 );
 
 static inline void MasterPrepareEmpty(Master *master)

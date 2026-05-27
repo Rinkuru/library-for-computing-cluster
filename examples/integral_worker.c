@@ -1,53 +1,46 @@
+#define _GNU_SOURCE
+
 #include "worker.h"
 #include "integral.h"
+#include "integral_example.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 #include <string.h>
 
-#define LONG_METHOD_STEPS 200000000L
+static IntegralMethod integral_method = LongMethod2;
+static Func integral_func = SimpleFunc;
 
-static double SimpleFunc(double x)
+static ClusterPacket *MakeIntegralResultPacket(double value)
 {
-    return (double)4.0 / (1.0 + x*x); 
+    ClusterPacket *packet = malloc(sizeof(*packet));
+    if (packet == NULL) {
+        return NULL;
+    }
+
+    IntegralResult *result = malloc(sizeof(*result));
+    if (result == NULL) {
+        free(packet);
+        return NULL;
+    }
+
+    result->value = value;
+    packet->data = result;
+    packet->size = sizeof(*result);
+    return packet;
 }
 
-static double HardFunc(double x)
+static void *RunIntegralTask(void *data, size_t size)
 {
-    return 2.0 + sin(2000000.0 * x);
-}
-
-double LongMethod2(Func f, double a, double b, double eps) {
-    (void)eps;
-
-    const double length = b - a;
-    if (length <= 0.0) {
-        return 0.0;
+    if (data == NULL || size != sizeof(IntegralTask)) {
+        return NULL;
     }
 
-    long steps = (long)((double)LONG_METHOD_STEPS * length);
-    if (steps < 1L) {
-        steps = 1L;
-    }
+    IntegralTask task;
+    memcpy(&task, data, sizeof(task));
 
-    const double h = length / (double)steps;
-    double sum = 0.0;
-    for (long i = 0; i < steps; ++i) {
-        double x = a + ((double)i + 0.5) * h;
-        sum += f(x);
-    }
-
-    return sum * h;
-}
-
-double LongMethod(Func f, double a, double b, double eps) {
-    (double)eps;
-    double sum = 0;
-    for (long i = a; i < b; ++i) {
-        sum += f(i);
-    }
-    return sum;
+    double value = integral_method(integral_func, task.begin, task.end, task.eps);
+    return MakeIntegralResultPacket(value);
 }
 
 void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *resources)
@@ -57,17 +50,24 @@ void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *res
     char *cores = "--cores";
     char *firstCore = "--first-core";
     char *method = "--method";
+    char *hardFunc = "--hardFunc";
     if (argc > 1) {
         for (int i = 1; i < argc; ++i) {
-            if (strcmp(argv[i], method) == 0)
-                config->method = LongMethod;
-            if (strcmp(argv[i], timeout) == 0)
+            if (strcmp(argv[i], method) == 0) {
+                integral_method = LongMethod;
+                continue;
+            }
+            if (strcmp(argv[i], hardFunc) == 0) {
+                integral_func = HardFunc;
+                continue;
+            }
+            if (strcmp(argv[i], timeout) == 0 && i + 1 < argc)
                 config->max_time = (int)strtoul(argv[i+1], NULL, 10);
-            if (strcmp(argv[i], threads) == 0)
+            if (strcmp(argv[i], threads) == 0 && i + 1 < argc)
                 resources->threads = (int)strtoul(argv[i+1], NULL, 10);
-            if (strcmp(argv[i], cores) == 0)
+            if (strcmp(argv[i], cores) == 0 && i + 1 < argc)
                 resources->cores = (int)strtoul(argv[i+1], NULL, 10);
-            if (strcmp(argv[i], firstCore) == 0)
+            if (strcmp(argv[i], firstCore) == 0 && i + 1 < argc)
                 resources->firstCore = (int)strtoul(argv[i+1], NULL, 10);
         }
     }
@@ -81,12 +81,11 @@ int main(int argc, char **argv)
         .host = "127.0.0.1",
         .port = 1337,
         .max_time = 18000,
-        .method = SlowSimpson,
+        .method = RunIntegralTask,
     };
     Worker worker;
     int status = 0;
 
-    //Выделить ядра и потоки, которые будут доступны этому процессу "рабочего узла"
     WorkerResources resources = {
         .threads = 2,
         .cores = 1,
@@ -95,24 +94,19 @@ int main(int argc, char **argv)
 
     ParseArgs(argc, argv, &config, &resources);
 
-    //подключение к серверу, и сохранение у себя параметров сколько потоков надо будет создать
-    //а так же обработка ошибки если не получилось подключиться
     status = WorkerInit(&worker, &config, &resources);
     if (status != 0) {
         fprintf(stderr, "worker init failed\n");
         return 1;
     }
 
-
-    //передача задания на исполнение тут мы должны передать функции для исполнения. И как-то взять от мастера eps и границы подсчётов и посчтиать на своей вычислительной мощности (сколько там выделили поток и ядер), а потом вернуть то что посчитали
-    status = WorkerRun(&worker, config.method, SimpleFunc);
+    status = WorkerRun(&worker, config.method);
     if (status != 0) {
         fprintf(stderr, "worker run failed\n");
         WorkerDestroy(&worker);
         return 1;
     }
 
-    //сделать ещё функцию для worker.c такую что вернёт результат мастеру. Это должна быть именно отдельная функция
     status = WorkerSendResult(&worker);
     if (status != 0) {
         fprintf(stderr, "worker send result failed\n");

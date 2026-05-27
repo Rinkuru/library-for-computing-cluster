@@ -17,25 +17,35 @@
 #include <unistd.h>
 
 typedef struct {
-    size_t threadI;
     Method method;
-    Func f;
-    double begin;
-    double end;
-    double eps;
-    double result;
+    void *data;
+    size_t size;
+    ClusterPacket *result;
 } WorkerThreadArgs;
+
+static void PacketPrepareEmpty(ClusterPacket *packet)
+{
+    packet->data = NULL;
+    packet->size = 0U;
+}
+
+static void PacketDestroy(ClusterPacket *packet)
+{
+    if (packet == NULL) return;
+
+    free(packet->data);
+    PacketPrepareEmpty(packet);
+}
 
 static void WorkerPrepareEmpty(Worker *worker)
 {
     worker->socketFd = -1;
-    worker->task.begin = 0.0;
-    worker->task.end = 0.0;
-    worker->task.eps = 0.0;
-    worker->result.value = 0.0;
+    PacketPrepareEmpty(&worker->task);
+    PacketPrepareEmpty(&worker->result);
     worker->resources.threads = 0;
     worker->resources.cores = 0;
     worker->resources.firstCore = 0;
+    worker->maxTime = 0;
 }
 
 static void SleepMs(long milliseconds)
@@ -95,6 +105,134 @@ static int ReadAll(int socketFd, void *buffer, size_t size)
     return 0;
 }
 
+static int ReadPacket(int socketFd, ClusterPacket *packet)
+{
+    unsigned char sizeBuffer[ClusterSizeHeaderSize];
+    if (ReadAll(socketFd, sizeBuffer, sizeof(sizeBuffer)) != 0) {
+        return 1;
+    }
+
+    uint64_t packetSize = ClusterDecodeSize(sizeBuffer);
+    if (packetSize > (uint64_t)SIZE_MAX) {
+        fprintf(stderr, "[WorkerIO] Packet size is too large\n");
+        return 1;
+    }
+
+    packet->size = (size_t)packetSize;
+    packet->data = NULL;
+    if (packet->size == 0U) {
+        return 0;
+    }
+
+    packet->data = malloc(packet->size);
+    if (packet->data == NULL) {
+        fprintf(stderr, "[WorkerIO] Unable to allocate packet data\n");
+        PacketPrepareEmpty(packet);
+        return 1;
+    }
+
+    if (ReadAll(socketFd, packet->data, packet->size) != 0) {
+        PacketDestroy(packet);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int WritePacket(int socketFd, const ClusterPacket *packet)
+{
+    unsigned char sizeBuffer[ClusterSizeHeaderSize];
+    ClusterEncodeSize((uint64_t)packet->size, sizeBuffer);
+
+    if (WriteAll(socketFd, sizeBuffer, sizeof(sizeBuffer)) != 0) {
+        return 1;
+    }
+
+    if (packet->size > 0U &&
+        WriteAll(socketFd, packet->data, packet->size) != 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static void DestroyMethodResult(ClusterPacket *packet)
+{
+    if (packet == NULL) return;
+
+    free(packet->data);
+    free(packet);
+}
+
+static void DestroyThreadResults(WorkerThreadArgs *args, int count)
+{
+    if (args == NULL) return;
+
+    for (int i = 0; i < count; ++i) {
+        DestroyMethodResult(args[i].result);
+        args[i].result = NULL;
+    }
+}
+
+static void *WorkerThreadFunc(void *threadArgs)
+{
+    WorkerThreadArgs *args = (WorkerThreadArgs *)threadArgs;
+    if (args == NULL || args->method == NULL) {
+        return NULL;
+    }
+
+    args->result = (ClusterPacket *)args->method(args->data, args->size);
+    return NULL;
+}
+
+static int AddSize(size_t *sum, size_t value)
+{
+    if (SIZE_MAX - *sum < value) {
+        return 1;
+    }
+
+    *sum += value;
+    return 0;
+}
+
+static int PackThreadResults(WorkerThreadArgs *args, int count, ClusterPacket *result)
+{
+    size_t packetSize = ClusterSizeHeaderSize;
+    for (int i = 0; i < count; ++i) {
+        if (args[i].result == NULL ||
+            (args[i].result->data == NULL && args[i].result->size > 0U) ||
+            AddSize(&packetSize, ClusterSizeHeaderSize) != 0 ||
+            AddSize(&packetSize, args[i].result->size) != 0) {
+            fprintf(stderr, "[WorkerRun] Method returned invalid packet\n");
+            return 1;
+        }
+    }
+
+    void *data = malloc(packetSize);
+    if (data == NULL) {
+        fprintf(stderr, "[WorkerRun] Unable to allocate result packet\n");
+        return 1;
+    }
+
+    unsigned char *bytes = (unsigned char *)data;
+    ClusterEncodeSize((uint64_t)count, bytes);
+    size_t offset = ClusterSizeHeaderSize;
+
+    for (int i = 0; i < count; ++i) {
+        ClusterEncodeSize((uint64_t)args[i].result->size, bytes + offset);
+        offset += ClusterSizeHeaderSize;
+        if (args[i].result->size > 0U) {
+            memcpy(bytes + offset, args[i].result->data, args[i].result->size);
+            offset += args[i].result->size;
+        }
+    }
+
+    PacketDestroy(result);
+    result->data = data;
+    result->size = packetSize;
+    return 0;
+}
+
 static int TryConnectToMaster(const struct addrinfo *address, int *socketFd)
 {
     int currentSocket = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
@@ -131,18 +269,6 @@ static int ConnectToMaster(const struct addrinfo *address, int *socketFd)
         printf("Wait for master to start\n");
         SleepMs(500L);
     }
-}
-
-static void *WorkerThreadFunc(void *threadArgs)
-{
-    WorkerThreadArgs *args = (WorkerThreadArgs *)threadArgs;
-    if (args == NULL || args->method == NULL || args->f == NULL) {
-        return NULL;
-    }
-
-    args->result = args->method(args->f, args->begin, args->end, args->eps);
-
-    return NULL;
 }
 
 void hello_worker(void)
@@ -217,7 +343,7 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
         return 1;
     }
 
-    if (ReadAll(worker->socketFd, &worker->task, sizeof(worker->task)) != 0) {
+    if (ReadPacket(worker->socketFd, &worker->task) != 0) {
         fprintf(stderr, "[WorkerInit] Unable to read task from master\n");
         freeaddrinfo(addresses);
         WorkerDestroy(worker);
@@ -228,11 +354,12 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
     return 0;
 }
 
-int WorkerRun(Worker *worker, Method method, Func f)
+int WorkerRun(Worker *worker, Method method)
 {
     if (worker == NULL ||
         method == NULL ||
-        f == NULL ||
+        worker->socketFd < 0 ||
+        (worker->task.data == NULL && worker->task.size > 0U) ||
         worker->resources.threads <= 0 ||
         worker->resources.cores <= 0 ||
         worker->resources.firstCore < 0 ||
@@ -241,8 +368,8 @@ int WorkerRun(Worker *worker, Method method, Func f)
         return 1;
     }
 
-    pthread_t *tids = calloc((size_t)worker->resources.threads, sizeof(pthread_t));
-    WorkerThreadArgs *args = calloc((size_t)worker->resources.threads, sizeof(WorkerThreadArgs));
+    pthread_t *tids = calloc((size_t)worker->resources.threads, sizeof(*tids));
+    WorkerThreadArgs *args = calloc((size_t)worker->resources.threads, sizeof(*args));
     if (tids == NULL || args == NULL) {
         fprintf(stderr, "[WorkerRun] Unable to allocate thread resources\n");
         free(tids);
@@ -250,19 +377,19 @@ int WorkerRun(Worker *worker, Method method, Func f)
         return 1;
     }
 
-    const double length = worker->task.end - worker->task.begin;
+    long startTime = NowMs();
     int status = 0;
     int createdThreads = 0;
+    char *taskBytes = (char *)worker->task.data;
 
-    long startTime = NowMs();
     for (int i = 0; i < worker->resources.threads; ++i) {
-        args[i].threadI = (size_t)i;
+        size_t begin = SplitPoint(worker->task.size, i, worker->resources.threads);
+        size_t end = SplitPoint(worker->task.size, i + 1, worker->resources.threads);
+
         args[i].method = method;
-        args[i].f = f;
-        args[i].begin = worker->task.begin + length * (double)i / (double)worker->resources.threads;
-        args[i].end = worker->task.begin + length * (double)(i + 1) / (double)worker->resources.threads;
-        args[i].eps = worker->task.eps / (double)worker->resources.threads;
-        args[i].result = 0.0;
+        args[i].data = begin == end ? NULL : taskBytes + begin;
+        args[i].size = end - begin;
+        args[i].result = NULL;
 
         pthread_attr_t threadAttributes;
         int ret = pthread_attr_init(&threadAttributes);
@@ -296,17 +423,15 @@ int WorkerRun(Worker *worker, Method method, Func f)
             status = 1;
             break;
         }
-        
+
+        createdThreads += 1;
         if (NowMs() - startTime > worker->maxTime) {
             fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
             status = 1;
             break;
         }
-
-        createdThreads += 1;
     }
 
-    worker->result.value = 0.0;
     for (int i = 0; i < createdThreads; ++i) {
         int ret = pthread_join(tids[i], NULL);
         if (ret != 0) {
@@ -317,12 +442,14 @@ int WorkerRun(Worker *worker, Method method, Func f)
         if (NowMs() - startTime > worker->maxTime) {
             fprintf(stderr, "[WorkerRun] Deadline the time limit\n");
             status = 1;
-            break;
         }
-
-        worker->result.value += args[i].result;
     }
 
+    if (status == 0 && PackThreadResults(args, worker->resources.threads, &worker->result) != 0) {
+        status = 1;
+    }
+
+    DestroyThreadResults(args, worker->resources.threads);
     free(tids);
     free(args);
 
@@ -336,7 +463,7 @@ int WorkerSendResult(Worker *worker)
         return 1;
     }
 
-    if (WriteAll(worker->socketFd, &worker->result, sizeof(worker->result)) != 0) {
+    if (WritePacket(worker->socketFd, &worker->result) != 0) {
         fprintf(stderr, "[WorkerSendResult] Unable to send result to master\n");
         return 1;
     }
@@ -352,5 +479,7 @@ void WorkerDestroy(Worker *worker)
         close(worker->socketFd);
     }
 
+    PacketDestroy(&worker->task);
+    PacketDestroy(&worker->result);
     WorkerPrepareEmpty(worker);
 }
