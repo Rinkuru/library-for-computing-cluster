@@ -1,4 +1,6 @@
 build/
 build-debug/
 build-clang/
+build-coverage/
 *.log
+*.info

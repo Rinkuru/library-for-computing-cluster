@@ -5,6 +5,9 @@ TIMEOUT=600000
 GREEN="\033[32m"
 RED="\033[31m"
 RESET="\033[0m"
+BUILD_DIR=${BUILD_DIR}
+MASTER="${BUILD_DIR}/examples/integral_master"
+WORKER="${BUILD_DIR}/examples/integral_worker"
 
 run_case() {
     workers=$1
@@ -13,14 +16,14 @@ run_case() {
     echo > "$case_log"
     echo "workers: $workers"
 
-    ./build/examples/integral_master --workers "$workers" --timeout "$TIMEOUT" --end >> "$case_log" 2>&1 &
+    "$MASTER" --workers "$workers" --timeout "$TIMEOUT" --end >> "$case_log" 2>&1 &
     master_pid=$!
 
     sleep 0.2
     start=$(date +%s%N)
 
     for ((i = 0; i < workers; ++i)); do
-        ./build/examples/integral_worker --method --threads 2 --cores 1 --first-core "$i" --timeout "$TIMEOUT" >> "$case_log" 2>&1 &
+        "$WORKER" --method --threads 2 --cores 1 --first-core "$i" --timeout "$TIMEOUT" >> "$case_log" 2>&1 &
         worker_pids[$i]=$!
     done
 

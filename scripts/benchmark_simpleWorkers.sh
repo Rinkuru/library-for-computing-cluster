@@ -4,17 +4,20 @@ LOGFILE="scripts/simpleWorkers.log"
 GREEN="\033[32m"
 RED="\033[31m"
 RESET="\033[0m"
+BUILD_DIR=${BUILD_DIR:-build}
+MASTER="${BUILD_DIR}/examples/integral_master"
+WORKER="${BUILD_DIR}/examples/integral_worker"
 
 echo > "$LOGFILE"
 echo "Running simple pi test"
 
-./build/examples/integral_master --workers 1 --timeout 60000 >> "$LOGFILE" 2>&1 &
+"$MASTER" --workers 1 --timeout 60000 >> "$LOGFILE" 2>&1 &
 master_pid=$!
 
 sleep 0.2
 start=$(date +%s%N)
 
-./build/examples/integral_worker --threads 1 --cores 1 --first-core 0 --timeout 60000 >> "$LOGFILE" 2>&1 &
+"$WORKER" --threads 1 --cores 1 --first-core 0 --timeout 60000 >> "$LOGFILE" 2>&1 &
 worker_pid=$!
 
 wait "$worker_pid"

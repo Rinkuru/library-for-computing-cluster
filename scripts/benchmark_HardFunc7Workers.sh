@@ -6,18 +6,21 @@ TIMEOUT=600000
 GREEN="\033[32m"
 RED="\033[31m"
 RESET="\033[0m"
+BUILD_DIR=${BUILD_DIR:-build}
+MASTER="${BUILD_DIR}/examples/integral_master"
+WORKER="${BUILD_DIR}/examples/integral_worker"
 
 echo > "$LOGFILE"
 echo "Running hard func 7 workers test"
 
-./build/examples/integral_master --workers "$WORKERS" --timeout "$TIMEOUT" >> "$LOGFILE" 2>&1 &
+"$MASTER" --workers "$WORKERS" --timeout "$TIMEOUT" >> "$LOGFILE" 2>&1 &
 master_pid=$!
 
 sleep 0.2
 start=$(date +%s%N)
 
 for ((i = 0; i < WORKERS; ++i)); do
-    ./build/examples/integral_worker --hardFunc --threads 1 --cores 1 --first-core 0 --timeout "$TIMEOUT" >> "$LOGFILE" 2>&1 &
+    "$WORKER" --hardFunc --threads 1 --cores 1 --first-core 0 --timeout "$TIMEOUT" >> "$LOGFILE" 2>&1 &
     worker_pids[$i]=$!
 done
 
