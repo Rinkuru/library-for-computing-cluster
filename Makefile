@@ -2,12 +2,17 @@
 
 all: build
 
+CFLAGS = -Wall -Wextra -Wformat=2 -Wformat-security -Werror=format-security -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
+LDFLAGS = -pie -Wl,-z,relro -Wl,-z,now
+
 build:
-	cmake -S . -B build
+	cmake -S . -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_C_FLAGS="$(CFLAGS)" -DCMAKE_EXE_LINKER_FLAGS="$(LDFLAGS)"
 	cmake --build build
+	cmake -S . -B build-clang -DCMAKE_C_COMPILER=clang -DCMAKE_C_FLAGS="$(CFLAGS)" -DCMAKE_EXE_LINKER_FLAGS="$(LDFLAGS)"
+	cmake --build build-clang
 
 debug:
-	cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_C_FLAGS="$(CFLAGS)" -DCMAKE_EXE_LINKER_FLAGS="$(LDFLAGS)"
 	cmake --build build-debug
 
 analyze:
@@ -37,5 +42,5 @@ test: build
 
 
 clean:
-	rm -rf build/ build-debug/
+	rm -rf build/ build-clang/ build-debug/
 	rm scripts/*.log
