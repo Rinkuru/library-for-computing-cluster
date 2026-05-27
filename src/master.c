@@ -3,6 +3,7 @@
 #include "common.h"
 #include "master.h"
 #include "common_multiplexing.h"
+#include "deadline_timer.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -10,12 +11,10 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <unistd.h>
 
 typedef enum {
@@ -23,69 +22,6 @@ typedef enum {
     TransferPending,
     TransferFailed
 } TransferStatus;
-
-typedef struct {
-    struct sigaction previousAction;
-    int active;
-} DeadlineTimer;
-
-static volatile sig_atomic_t deadlineExpired = 0;
-
-static void DeadlineSignalHandler(int signalNumber)
-{
-    (void)signalNumber;
-    deadlineExpired = 1;
-}
-
-static int DeadlineTimerStart(DeadlineTimer *timer, int timeoutMs)
-{
-    if (timer == NULL) return 1;
-
-    memset(timer, 0, sizeof(*timer));
-    deadlineExpired = 0;
-    if (timeoutMs <= 0) return 0;
-
-    struct sigaction action;
-    memset(&action, 0, sizeof(action));
-    action.sa_handler = DeadlineSignalHandler;
-    sigemptyset(&action.sa_mask);
-
-    if (sigaction(SIGALRM, &action, &timer->previousAction) == -1) {
-        fprintf(stderr, "[DeadlineTimer] Unable to install SIGALRM handler\n");
-        return 1;
-    }
-
-    struct itimerval timeout;
-    memset(&timeout, 0, sizeof(timeout));
-    timeout.it_value.tv_sec = timeoutMs / 1000;
-    timeout.it_value.tv_usec = (suseconds_t)(timeoutMs % 1000) * 1000;
-
-    if (setitimer(ITIMER_REAL, &timeout, NULL) == -1) {
-        fprintf(stderr, "[DeadlineTimer] Unable to start timer\n");
-        (void)sigaction(SIGALRM, &timer->previousAction, NULL);
-        return 1;
-    }
-
-    timer->active = 1;
-    return 0;
-}
-
-static void DeadlineTimerStop(DeadlineTimer *timer)
-{
-    if (timer == NULL || !timer->active) return;
-
-    struct itimerval timeout;
-    memset(&timeout, 0, sizeof(timeout));
-    (void)setitimer(ITIMER_REAL, &timeout, NULL);
-    (void)sigaction(SIGALRM, &timer->previousAction, NULL);
-    timer->active = 0;
-    deadlineExpired = 0;
-}
-
-static int DeadlineTimerExpired(void)
-{
-    return deadlineExpired != 0;
-}
 
 static void MasterWorkerPrepareEmpty(MasterWorker *worker)
 {
