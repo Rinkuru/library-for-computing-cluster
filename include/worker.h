@@ -25,6 +25,7 @@ typedef struct {
     ClusterPacket task;
     ClusterPacket result;
     WorkerResources resources;
+    Method method;
     int maxTime;
 } Worker;
 
@@ -32,13 +33,12 @@ typedef struct {
     Method method;
     ClusterThreadTask task;
     ClusterPacket *result;
-    bool finished;
     bool joined;
 } WorkerThreadArgs;
 
 int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources);
 
-int WorkerRun(Worker *worker, Method method);
+int WorkerRun(Worker *worker);
 
 int WorkerSendResult(Worker *worker);
 

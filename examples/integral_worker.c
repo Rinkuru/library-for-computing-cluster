@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    status = WorkerRun(&worker, config.method);
+    status = WorkerRun(&worker);
     if (status != 0) {
         fprintf(stderr, "worker run failed\n");
         WorkerDestroy(&worker);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-TITLE=${2}
+TITLE=${1}
 INFO_FILE="scripts/coverage.info"
 FILTERED_INFO="scripts/coverage.filtered.info"
 

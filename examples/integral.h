@@ -15,8 +15,8 @@ double LongMethod2(Func f, double a, double b, double eps);
 
 double LongMethod(Func f, double a, double b, double eps);
 
-double SlowSimpson(Func f, double a, double b, double eps);
+//double SlowSimpson(Func f, double a, double b, double eps);
 
-double FastSimpson(Func f, double a, double b, double eps);
+//double FastSimpson(Func f, double a, double b, double eps);
 
 #endif

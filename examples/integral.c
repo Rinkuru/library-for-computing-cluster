@@ -43,7 +43,7 @@ double LongMethod(Func f, double a, double b, double eps) {
     return sum;
 }
 
-double SimpsonMethod(Func f, double a, double b, int n) {
+/*double SimpsonMethod(Func f, double a, double b, int n) {
     double h = (b - a) / n;
     double sum = 0.0;
     double x0 = a;
@@ -55,9 +55,9 @@ double SimpsonMethod(Func f, double a, double b, int n) {
         x1 += h;
     }
     return (h / 6) * sum;
-}
+}*/
 
-double SlowSimpson(Func f, double a, double b, double eps) {
+/*double SlowSimpson(Func f, double a, double b, double eps) {
     int n = 4;
     double ans2 = SimpsonMethod(f, a, b, n);
     double ans1;
@@ -70,9 +70,9 @@ double SlowSimpson(Func f, double a, double b, double eps) {
         ans2 = ans1;
     }
     return ans1;
-}
+}*/
 
-double FastSimpson(Func f, double a, double b, double eps) {
+/*double FastSimpson(Func f, double a, double b, double eps) {
     double n = 4.0;
     double sum1 = 0.0, sum2 = 0.0;
     double x, h;
@@ -98,7 +98,7 @@ double FastSimpson(Func f, double a, double b, double eps) {
         } 
     };
     return (h * sum1) / 3.0;
-}
+}*/
 
 /*
 #include <stdio.h>

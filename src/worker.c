@@ -219,7 +219,6 @@ static void *WorkerThreadFunc(void *threadArgs) {
     }
 
     args->result = (ClusterPacket *)args->method(&args->task, sizeof(args->task));
-    args->finished = true;
 
     return NULL;
 }
@@ -422,6 +421,7 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
     worker->socketFd = socketFd;
     worker->resources = *resources;
     worker->maxTime = config->max_time;
+    worker->method = config->method;
 
     int yes = 1;
     if (setsockopt(worker->socketFd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
@@ -444,9 +444,9 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
     return 0;
 }
 
-int WorkerRun(Worker *worker, Method method) {
+int WorkerRun(Worker *worker) {
     if (worker == NULL ||
-        method == NULL ||
+        worker->method == NULL ||
         worker->socketFd < 0 ||
         (worker->task.data == NULL && worker->task.size > 0U) ||
         worker->resources.threads <= 0 ||
@@ -491,13 +491,12 @@ int WorkerRun(Worker *worker, Method method) {
             break;
         }
 
-        args[i].method = method;
+        args[i].method = worker->method;
         args[i].task.threadIndex = (size_t)i;
         args[i].task.threadsCount = (size_t)worker->resources.threads;
         args[i].task.data = worker->task.data;
         args[i].task.size = worker->task.size;
         args[i].result = NULL;
-        args[i].finished = false;
         args[i].joined = false;
 
         pthread_attr_t threadAttributes;
