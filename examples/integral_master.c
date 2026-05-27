@@ -18,7 +18,7 @@ void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task) 
             if (strcmp(argv[i], timeout) == 0 && i + 1 < argc)
                 config->max_time_ms = (int)strtoul(argv[i+1], NULL, 10);
             if (strcmp(argv[i], end) == 0)
-                task->end = 10000000000;
+                task->end = 2200000000;
         }
     }
 }

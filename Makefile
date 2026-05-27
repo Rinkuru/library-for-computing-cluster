@@ -1,4 +1,4 @@
-.PHONY: all build debug simple-test hard-test test clean
+.PHONY: all build debug simple-test hard-test speedup-test test clean
 
 all: build
 
@@ -10,14 +10,21 @@ debug:
 	cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 	cmake --build build-debug
 
-simple-test:
+simple-test: build
 	./scripts/benchmark_simpleWorkers.sh
 
-hard-test:
+hard-test: build
+	./scripts/benchmark_HardFunc7Workers.sh
 
+speedup-test: build
+	./scripts/benchmark_HardWorkers.sh
 
-test: simple-test hard-test
+test: build
+	./scripts/benchmark_simpleWorkers.sh
+	./scripts/benchmark_HardFunc7Workers.sh
+	./scripts/benchmark_HardWorkers.sh
 
 
 clean:
 	rm -rf build/ build-debug/
+	rm scripts/*.log
