@@ -23,8 +23,7 @@ typedef enum {
     TransferFailed
 } TransferStatus;
 
-static void MasterWorkerPrepareEmpty(MasterWorker *worker)
-{
+static void MasterWorkerPrepareEmpty(MasterWorker *worker) {
     worker->socketFd = -1;
     worker->state = MasterWorkerEmpty;
     worker->transferOffset = 0U;
@@ -34,8 +33,7 @@ static void MasterWorkerPrepareEmpty(MasterWorker *worker)
     memset(worker->sizeBuffer, 0, sizeof(worker->sizeBuffer));
 }
 
-static int MasterPrepare(Master *master, const MasterConfig *config)
-{
+static int MasterPrepare(Master *master, const MasterConfig *config) {
     MasterPrepareEmpty(master);
 
     master->workers = calloc((size_t)config->required_workers, sizeof(MasterWorker));
@@ -54,8 +52,7 @@ static int MasterPrepare(Master *master, const MasterConfig *config)
     return 0;
 }
 
-static int SetNonBlocking(int socketFd)
-{
+static int SetNonBlocking(int socketFd) {
     int flags = fcntl(socketFd, F_GETFL, 0);
     if (flags == -1) return 1;
     if (fcntl(socketFd, F_SETFL, flags | O_NONBLOCK) == -1) return 1;
@@ -66,8 +63,7 @@ static short SocketPeerClosedEvents(void) {
     return POLLHUP | POLLRDHUP;
 }
 
-static int PollTimeoutMs(long startTime, int maxTimeMs)
-{
+static int PollTimeoutMs(long startTime, int maxTimeMs) {
     if (maxTimeMs <= 0) return -1;
 
     long elapsed = NowMs() - startTime;
@@ -77,8 +73,7 @@ static int PollTimeoutMs(long startTime, int maxTimeMs)
     return (int)remaining;
 }
 
-static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, size_t *offset)
-{
+static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, size_t *offset) {
     const char *data = (const char *)buffer;
     while (*offset < size) {
         ssize_t written = send(socketFd, data + *offset, size - *offset, MSG_NOSIGNAL);
@@ -94,8 +89,7 @@ static TransferStatus WritePart(int socketFd, const void *buffer, size_t size, s
     return TransferComplete;
 }
 
-static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *offset)
-{
+static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *offset) {
     char *data = (char *)buffer;
     while (*offset < size) {
         ssize_t bytesRead = recv(socketFd, data + *offset, size - *offset, 0);
@@ -111,8 +105,7 @@ static TransferStatus ReadPart(int socketFd, void *buffer, size_t size, size_t *
     return TransferComplete;
 }
 
-static void CloseWorkerSocket(MasterWorker *worker)
-{
+static void CloseWorkerSocket(MasterWorker *worker) {
     if (worker->socketFd >= 0) {
         shutdown(worker->socketFd, SHUT_RDWR);
         close(worker->socketFd);
@@ -120,8 +113,7 @@ static void CloseWorkerSocket(MasterWorker *worker)
     worker->socketFd = -1;
 }
 
-static void CloseAllWorkers(Master *master)
-{
+static void CloseAllWorkers(Master *master) {
     for (int i = 0; i < master->workersCount; ++i) {
         CloseWorkerSocket(&master->workers[i]);
         if (master->workers[i].state != Done) {
@@ -130,8 +122,7 @@ static void CloseAllWorkers(Master *master)
     }
 }
 
-static void FreeResults(ClusterPacket *results, int count)
-{
+static void FreeResults(ClusterPacket *results, int count) {
     if (results == NULL) return;
 
     for (int i = 0; i < count; ++i) {
@@ -141,8 +132,7 @@ static void FreeResults(ClusterPacket *results, int count)
     }
 }
 
-static int MasterAcceptWorker(Master *master, size_t taskDataSize)
-{
+static int MasterAcceptWorker(Master *master, size_t taskDataSize) {
     printf("Wait for client to connect\n");
 
     int workerSocket = accept(master->listenSocketFd, NULL, NULL);
@@ -183,8 +173,7 @@ static int MasterAcceptWorker(Master *master, size_t taskDataSize)
     return 0;
 }
 
-static void PreparePollFds(Master *master, struct pollfd *pollFds)
-{
+static void PreparePollFds(Master *master, struct pollfd *pollFds) {
     if (master->workersCount < master->workersCapacity) {
         pollFds[0].fd = master->listenSocketFd;
         pollFds[0].events = POLLIN;
@@ -224,13 +213,11 @@ static void PreparePollFds(Master *master, struct pollfd *pollFds)
     }
 }
 
-void hello_master(void)
-{
+void hello_master(void) {
     printf("Hello, i am master\n");
 }
 
-int MasterInit(Master *master, const MasterConfig *config)
-{
+int MasterInit(Master *master, const MasterConfig *config) {
     if (master == NULL) {
         fprintf(stderr, "[MasterInit] NULL master\n");
         return 1;
@@ -250,8 +237,7 @@ int MasterInit(Master *master, const MasterConfig *config)
     return 0;
 }
 
-int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *results)
-{
+int MasterRun(Master *master, const void *data, size_t size, ClusterPacket *results) {
     if (master == NULL ||
         (data == NULL && size > 0U) ||
         results == NULL ||

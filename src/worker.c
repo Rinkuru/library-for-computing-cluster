@@ -18,22 +18,19 @@
 #include <time.h>
 #include <unistd.h>
 
-static void PacketPrepareEmpty(ClusterPacket *packet)
-{
+static void PacketPrepareEmpty(ClusterPacket *packet) {
     packet->data = NULL;
     packet->size = 0U;
 }
 
-static void PacketDestroy(ClusterPacket *packet)
-{
+static void PacketDestroy(ClusterPacket *packet) {
     if (packet == NULL) return;
 
     free(packet->data);
     PacketPrepareEmpty(packet);
 }
 
-static void WorkerPrepareEmpty(Worker *worker)
-{
+static void WorkerPrepareEmpty(Worker *worker) {
     worker->socketFd = -1;
     PacketPrepareEmpty(&worker->task);
     PacketPrepareEmpty(&worker->result);
@@ -43,8 +40,7 @@ static void WorkerPrepareEmpty(Worker *worker)
     worker->maxTime = 0;
 }
 
-static void SleepMs(long milliseconds)
-{
+static void SleepMs(long milliseconds) {
     struct timespec ts;
     ts.tv_sec = milliseconds / 1000L;
     ts.tv_nsec = (milliseconds % 1000L) * 1000000L;
@@ -52,8 +48,7 @@ static void SleepMs(long milliseconds)
     while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {}
 }
 
-static int WorkerCheckMasterAlive(int socketFd)
-{
+static int WorkerCheckMasterAlive(int socketFd) {
     struct pollfd pollFd;
     pollFd.fd = socketFd;
     pollFd.events = POLLIN | POLLRDHUP;
@@ -94,8 +89,7 @@ static int WorkerCheckMasterAlive(int socketFd)
     return 0;
 }
 
-static int WriteAll(int socketFd, const void *buffer, size_t size)
-{
+static int WriteAll(int socketFd, const void *buffer, size_t size) {
     const char *data = (const char *)buffer;
     size_t offset = 0U;
 #ifdef MSG_NOSIGNAL
@@ -123,8 +117,7 @@ static int WriteAll(int socketFd, const void *buffer, size_t size)
     return 0;
 }
 
-static int ReadAll(int socketFd, void *buffer, size_t size)
-{
+static int ReadAll(int socketFd, void *buffer, size_t size) {
     char *data = (char *)buffer;
     size_t offset = 0U;
 
@@ -147,8 +140,7 @@ static int ReadAll(int socketFd, void *buffer, size_t size)
     return 0;
 }
 
-static int ReadPacket(int socketFd, ClusterPacket *packet)
-{
+static int ReadPacket(int socketFd, ClusterPacket *packet) {
     unsigned char sizeBuffer[ClusterSizeHeaderSize];
     if (ReadAll(socketFd, sizeBuffer, sizeof(sizeBuffer)) != 0) {
         return 1;
@@ -181,8 +173,7 @@ static int ReadPacket(int socketFd, ClusterPacket *packet)
     return 0;
 }
 
-static int WritePacket(int socketFd, const ClusterPacket *packet)
-{
+static int WritePacket(int socketFd, const ClusterPacket *packet) {
     unsigned char sizeBuffer[ClusterSizeHeaderSize];
     ClusterEncodeSize((uint64_t)packet->size, sizeBuffer);
 
@@ -198,16 +189,14 @@ static int WritePacket(int socketFd, const ClusterPacket *packet)
     return 0;
 }
 
-static void DestroyMethodResult(ClusterPacket *packet)
-{
+static void DestroyMethodResult(ClusterPacket *packet) {
     if (packet == NULL) return;
 
     free(packet->data);
     free(packet);
 }
 
-static void DestroyThreadResults(WorkerThreadArgs *args, int count)
-{
+static void DestroyThreadResults(WorkerThreadArgs *args, int count) {
     if (args == NULL) return;
 
     for (int i = 0; i < count; ++i) {
@@ -216,8 +205,7 @@ static void DestroyThreadResults(WorkerThreadArgs *args, int count)
     }
 }
 
-static void *WorkerThreadFunc(void *threadArgs)
-{
+static void *WorkerThreadFunc(void *threadArgs) {
     WorkerThreadArgs *args = (WorkerThreadArgs *)threadArgs;
     if (args == NULL || args->method == NULL) {
         return NULL;
@@ -236,8 +224,7 @@ static void *WorkerThreadFunc(void *threadArgs)
     return NULL;
 }
 
-static void CancelUnjoinedThreads(pthread_t *tids, WorkerThreadArgs *args, int count)
-{
+static void CancelUnjoinedThreads(pthread_t *tids, WorkerThreadArgs *args, int count) {
     for (int i = 0; i < count; ++i) {
         if (!args[i].joined) {
             (void)pthread_cancel(tids[i]);
@@ -245,8 +232,7 @@ static void CancelUnjoinedThreads(pthread_t *tids, WorkerThreadArgs *args, int c
     }
 }
 
-static int JoinReadyThreads(pthread_t *tids, WorkerThreadArgs *args, int count, int *joinedThreads)
-{
+static int JoinReadyThreads(pthread_t *tids, WorkerThreadArgs *args, int count, int *joinedThreads) {
     int status = 0;
 
     for (int i = 0; i < count; ++i) {
@@ -275,8 +261,7 @@ static int JoinReadyThreads(pthread_t *tids, WorkerThreadArgs *args, int count, 
     return status;
 }
 
-static int AddSize(size_t *sum, size_t value)
-{
+static int AddSize(size_t *sum, size_t value) {
     if (SIZE_MAX - *sum < value) {
         return 1;
     }
@@ -285,8 +270,7 @@ static int AddSize(size_t *sum, size_t value)
     return 0;
 }
 
-static int PackThreadResults(WorkerThreadArgs *args, int count, ClusterPacket *result)
-{
+static int PackThreadResults(WorkerThreadArgs *args, int count, ClusterPacket *result) {
     size_t packetSize = ClusterSizeHeaderSize;
     for (int i = 0; i < count; ++i) {
         if (args[i].result == NULL ||
@@ -323,8 +307,7 @@ static int PackThreadResults(WorkerThreadArgs *args, int count, ClusterPacket *r
     return 0;
 }
 
-static int TryConnectToMaster(const struct addrinfo *address, int *socketFd)
-{
+static int TryConnectToMaster(const struct addrinfo *address, int *socketFd) {
     int currentSocket = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
     if (currentSocket == -1) {
         fprintf(stderr, "[WorkerInit] Unable to create socket\n");
@@ -347,8 +330,7 @@ static int TryConnectToMaster(const struct addrinfo *address, int *socketFd)
     return 1;
 }
 
-static int ConnectToMaster(const struct addrinfo *address, int *socketFd, int maxTimeMs)
-{
+static int ConnectToMaster(const struct addrinfo *address, int *socketFd, int maxTimeMs) {
     long startTime = NowMs();
 
     while (true) {
@@ -379,13 +361,11 @@ static int ConnectToMaster(const struct addrinfo *address, int *socketFd, int ma
     }
 }
 
-void hello_worker(void)
-{
+void hello_worker(void) {
     printf("Hello, i am worker\n");
 }
 
-int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources)
-{
+int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources *resources) {
     if (worker == NULL) {
         fprintf(stderr, "[WorkerInit] NULL worker\n");
         return 1;
@@ -464,8 +444,7 @@ int WorkerInit(Worker *worker, const WorkerConfig *config, const WorkerResources
     return 0;
 }
 
-int WorkerRun(Worker *worker, Method method)
-{
+int WorkerRun(Worker *worker, Method method) {
     if (worker == NULL ||
         method == NULL ||
         worker->socketFd < 0 ||
@@ -600,8 +579,7 @@ int WorkerRun(Worker *worker, Method method)
     return status;
 }
 
-int WorkerSendResult(Worker *worker)
-{
+int WorkerSendResult(Worker *worker) {
     if (worker == NULL || worker->socketFd < 0) {
         fprintf(stderr, "[WorkerSendResult] NULL worker\n");
         return 1;
@@ -620,8 +598,7 @@ int WorkerSendResult(Worker *worker)
     return 0;
 }
 
-void WorkerDestroy(Worker *worker)
-{
+void WorkerDestroy(Worker *worker) {
     if (worker == NULL) return;
 
     if (worker->socketFd >= 0) {

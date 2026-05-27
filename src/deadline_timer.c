@@ -11,14 +11,12 @@
 
 static volatile sig_atomic_t deadlineExpired = 0;
 
-static void DeadlineSignalHandler(int signalNumber)
-{
+static void DeadlineSignalHandler(int signalNumber) {
     (void)signalNumber;
     deadlineExpired = 1;
 }
 
-int DeadlineTimerStart(DeadlineTimer *timer, int timeoutMs)
-{
+int DeadlineTimerStart(DeadlineTimer *timer, int timeoutMs) {
     if (timer == NULL) return 1;
 
     memset(timer, 0, sizeof(*timer));
@@ -50,8 +48,7 @@ int DeadlineTimerStart(DeadlineTimer *timer, int timeoutMs)
     return 0;
 }
 
-void DeadlineTimerStop(DeadlineTimer *timer)
-{
+void DeadlineTimerStop(DeadlineTimer *timer) {
     if (timer == NULL || !timer->active) return;
 
     struct itimerval timeout;
@@ -62,13 +59,11 @@ void DeadlineTimerStop(DeadlineTimer *timer)
     deadlineExpired = 0;
 }
 
-int DeadlineTimerExpired(void)
-{
+int DeadlineTimerExpired(void) {
     return deadlineExpired != 0;
 }
 
-int DeadlineExceeded(long startTime, int maxTimeMs, int *reported)
-{
+int DeadlineExceeded(long startTime, int maxTimeMs, int *reported) {
     int expired = DeadlineTimerExpired();
     if (!expired && maxTimeMs > 0) {
         long now = NowMs();
@@ -84,8 +79,7 @@ int DeadlineExceeded(long startTime, int maxTimeMs, int *reported)
     return 1;
 }
 
-void BlockDeadlineSignalForMethod(void)
-{
+void BlockDeadlineSignalForMethod(void) {
     sigset_t signals;
     sigemptyset(&signals);
     sigaddset(&signals, SIGALRM);

@@ -11,8 +11,7 @@
 static IntegralMethod integral_method = LongMethod2;
 static Func integral_func = SimpleFunc;
 
-static ClusterPacket *MakeIntegralResultPacket(double value)
-{
+static ClusterPacket *MakeIntegralResultPacket(double value) {
     ClusterPacket *packet = malloc(sizeof(*packet));
     if (packet == NULL) {
         return NULL;
@@ -30,8 +29,7 @@ static ClusterPacket *MakeIntegralResultPacket(double value)
     return packet;
 }
 
-static void *RunIntegralTask(void *data, size_t size)
-{
+static void *RunIntegralTask(void *data, size_t size) {
     if (data == NULL || size != sizeof(ClusterThreadTask)) {
         return NULL;
     }
@@ -56,8 +54,7 @@ static void *RunIntegralTask(void *data, size_t size)
     return MakeIntegralResultPacket(value);
 }
 
-void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *resources)
-{
+void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *resources) {
     char *timeout = "--timeout";
     char *threads = "--threads";
     char *cores = "--cores";
@@ -86,8 +83,7 @@ void ParseArgs(int argc, char **argv, WorkerConfig *config, WorkerResources *res
     }
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     hello_worker();
     
     WorkerConfig config = {

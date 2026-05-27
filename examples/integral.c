@@ -2,18 +2,15 @@
 
 #include <math.h>
 
-double SimpleFunc(double x)
-{
+double SimpleFunc(double x) {
     return (double)4.0 / (1.0 + x*x); 
 }
 
-double HardFunc(double x)
-{
+double HardFunc(double x) {
     return 2.0 + sin(2000000.0 * x);
 }
 
-double LongMethod2(Func f, double a, double b, double eps)
-{
+double LongMethod2(Func f, double a, double b, double eps) {
     (void)eps;
 
     const double length = b - a;
@@ -36,8 +33,7 @@ double LongMethod2(Func f, double a, double b, double eps)
     return sum * h;
 }
 
-double LongMethod(Func f, double a, double b, double eps)
-{
+double LongMethod(Func f, double a, double b, double eps) {
     (void)eps;
 
     double sum = 0.0;

@@ -75,21 +75,18 @@ void ConfigureTcpFailureDetection(int socketFd, int timeoutMs) {
     (void)setsockopt(socketFd, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(keepCount));
 }
 
-static int SocketTimeoutMs(int maxTimeMs)
-{
+static int SocketTimeoutMs(int maxTimeMs) {
     if (maxTimeMs <= 0) return 1000;
     if (maxTimeMs < 1000) return maxTimeMs;
     return 1000;
 }
 
-static void FillTimevalMs(struct timeval *tv, int timeoutMs)
-{
+static void FillTimevalMs(struct timeval *tv, int timeoutMs) {
     tv->tv_sec = timeoutMs / 1000;
     tv->tv_usec = (suseconds_t)(timeoutMs % 1000) * 1000;
 }
 
-void ConfigureSocketTimeouts(int socketFd, int timeoutMs)
-{
+void ConfigureSocketTimeouts(int socketFd, int timeoutMs) {
     struct timeval timeout;
     FillTimevalMs(&timeout, SocketTimeoutMs(timeoutMs));
     (void)setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));

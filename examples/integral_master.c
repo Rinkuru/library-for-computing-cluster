@@ -7,8 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task)
-{
+void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task) {
     char *required_workers = "--workers";
     char *timeout = "--timeout";
     char *end = "--end";
@@ -24,8 +23,7 @@ void ParseArgs(int argc, char **argv, MasterConfig *config, IntegralTask *task)
     }
 }
 
-static void FreeWorkerResults(ClusterPacket *workerResults, int count)
-{
+static void FreeWorkerResults(ClusterPacket *workerResults, int count) {
     if (workerResults == NULL) return;
 
     for (int i = 0; i < count; ++i) {
@@ -35,8 +33,7 @@ static void FreeWorkerResults(ClusterPacket *workerResults, int count)
     }
 }
 
-static int AddPackedResults(const ClusterPacket *packet, IntegralResult *result)
-{
+static int AddPackedResults(const ClusterPacket *packet, IntegralResult *result) {
     if (packet == NULL ||
         result == NULL ||
         packet->data == NULL ||
@@ -70,8 +67,7 @@ static int AddPackedResults(const ClusterPacket *packet, IntegralResult *result)
     return offset == packet->size ? 0 : 1;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     hello_master();
     
     MasterConfig config = {
